@@ -7,14 +7,13 @@
  * from a different origin (domain/port) unless the server explicitly says it's OK.
  *
  * Our setup:
- *   - Frontend runs on http://localhost:3000 (Next.js dev server)
- *   - Backend runs on http://localhost:8000 (Laravel)
+ *   - Frontend runs on http://localhost:3000 (Next.js dev server) and https://grantly.au (production)
+ *   - Backend runs on http://localhost:8000 (Laravel) and https://app.grantly.au (production)
  *
- * Because they're on different ports they count as different origins, so the
- * backend must tell the browser "yes, requests from localhost:3000 are allowed".
+ * Because they're on different origins the backend must tell the browser
+ * "yes, requests from these domains are allowed".
  *
  * This file is read by Laravel's built-in HandleCors middleware.
- * In production, replace the localhost URL with the real Vercel domain.
  */
 
 return [
@@ -29,7 +28,9 @@ return [
     |
     */
     'allowed_origins' => [
-        'http://localhost:3000',
+        'http://localhost:3000',   // local Next.js dev server
+        'https://grantly.au',      // production frontend
+        'https://www.grantly.au',  // production frontend with www
     ],
 
     /*
