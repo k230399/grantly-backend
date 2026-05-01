@@ -21,6 +21,26 @@ class StoreGrantRoundRequest extends ApiFormRequest
     }
 
     /**
+     * Runs before validation. When the frontend submits a cover image, the whole
+     * request comes in as multipart/form-data — and multipart can only carry strings.
+     * The form builder serialises application_form_schema as JSON so it can ride along
+     * in that body, and we decode it back into an array here so the 'array' validation
+     * rule sees the correct type.
+     */
+    protected function prepareForValidation(): void
+    {
+        $schema = $this->input('application_form_schema');
+        if (is_string($schema)) {
+            $decoded = json_decode($schema, true);
+            // If decoding succeeded, swap in the parsed array; otherwise leave the
+            // raw string in place so the 'array' validation rule rejects it cleanly.
+            if (is_array($decoded)) {
+                $this->merge(['application_form_schema' => $decoded]);
+            }
+        }
+    }
+
+    /**
      * Validation rules for each field.
      * title, description, max_funding_amount, and eligibility_criteria are required
      * because the database columns are NOT NULL.

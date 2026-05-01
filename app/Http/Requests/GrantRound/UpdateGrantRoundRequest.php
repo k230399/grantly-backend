@@ -22,6 +22,23 @@ class UpdateGrantRoundRequest extends ApiFormRequest
     }
 
     /**
+     * Runs before validation. When the admin uploads a new cover image, the whole
+     * request body is multipart/form-data and every value arrives as a string.
+     * The form builder JSON-stringifies application_form_schema for that case;
+     * here we decode it back into an array so the 'array' validation rule can pass.
+     */
+    protected function prepareForValidation(): void
+    {
+        $schema = $this->input('application_form_schema');
+        if (is_string($schema)) {
+            $decoded = json_decode($schema, true);
+            if (is_array($decoded)) {
+                $this->merge(['application_form_schema' => $decoded]);
+            }
+        }
+    }
+
+    /**
      * Validation rules — all fields use 'sometimes' so admins can update
      * a single field without resending the entire record.
      *

@@ -35,6 +35,7 @@ class Application extends Model
         'funding_requested',
         'total_project_budget',
         'declaration_accepted',
+        'form_data',
         'status',
         'submitted_at',
     ];
@@ -47,6 +48,10 @@ class Application extends Model
             'funding_requested'    => 'decimal:2', // Always show as e.g. 5000.00
             'total_project_budget' => 'decimal:2',
             'declaration_accepted' => 'boolean',   // Stored as 0/1 in DB, accessed as true/false in PHP
+            // form_data stores the applicant's answers to the custom questions defined
+            // by the grant round's application_form_schema. 'json' decodes the JSONB
+            // column into a PHP array on read and re-encodes on write.
+            'form_data'            => 'json',
             'submitted_at'         => 'datetime',  // Becomes a Carbon date object when not null
         ];
     }
