@@ -8,8 +8,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * An admin's note on a specific application.
- * Notes can be internal (admin-only) or visible to the applicant (is_internal = false).
+ * An admin's internal note on a specific application.
+ * Review notes are admin-only — applicant-facing comms goes through
+ * status-change notes on application_status_history.
  */
 class ReviewNote extends Model
 {
@@ -19,16 +20,7 @@ class ReviewNote extends Model
         'application_id',
         'reviewer_id',
         'note_content',
-        'is_internal',
     ];
-
-    protected function casts(): array
-    {
-        return [
-            // is_internal stored as 0/1 in the database, accessed as true/false in PHP
-            'is_internal' => 'boolean',
-        ];
-    }
 
     // ─── Relationships ────────────────────────────────────────────────────────
 

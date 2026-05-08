@@ -21,5 +21,9 @@ class DatabaseSeeder extends Seeder
             'name' => 'Test User',
             'email' => 'test@example.com',
         ]);
+
+        // Ten realistic grant rounds (mix of open / draft / closed) attached to
+        // the admin profile with email user@example.com.
+        $this->call(GrantRoundSeeder::class);
     }
 }

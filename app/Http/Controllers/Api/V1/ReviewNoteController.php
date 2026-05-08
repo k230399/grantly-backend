@@ -3,75 +3,151 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ReviewNote\StoreReviewNoteRequest;
+use App\Http\Requests\ReviewNote\UpdateReviewNoteRequest;
+use App\Http\Resources\ReviewNoteResource;
 use App\Models\Application;
 use App\Models\ReviewNote;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Handles review notes that admins leave on applications.
- * Internal notes (is_internal = true) are only visible to admins.
- * Public notes (is_internal = false) are also visible to the applicant.
- * Endpoint prefix: /api/v1/applications/{application}/review-notes
+ * Handles review notes that admins leave on applications during review.
+ * Review notes are strictly admin-only — applicants never see them.
+ * Applicant-facing comms is handled separately via status-change notes
+ * on the application_status_history audit trail.
+ *
+ * Endpoints:
+ *   GET    /applications/{application}/review-notes
+ *   POST   /applications/{application}/review-notes
+ *   PATCH  /review-notes/{note}
+ *   DELETE /review-notes/{note}
  */
 class ReviewNoteController extends Controller
 {
     /**
-     * GET /api/v1/applications/{application}/review-notes
+     * GET /applications/{application}/review-notes
      *
-     * Returns all review notes on an application.
-     * Admins see all notes. Applicants see only non-internal notes (is_internal = false).
-     *
-     * @param Application $application — the application whose notes to return
-     * @return JsonResponse — array of review note objects
+     * Lists all review notes on an application, newest first. Admin-only.
      */
-    public function index(Application $application): JsonResponse
+    public function index(Request $request, Application $application): JsonResponse
     {
-        // TODO (Step 10): scope by role — hide internal notes from applicants
-        return response()->json(['message' => 'Not yet implemented'], 501);
+        if ($request->user()->role !== 'admin') {
+            return response()->json([
+                'error' => [
+                    'code'    => 'forbidden',
+                    'message' => 'Only administrators can view review notes.',
+                ],
+            ], 403);
+        }
+
+        $notes = $application->reviewNotes()
+            ->with('reviewer')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'data' => ReviewNoteResource::collection($notes),
+        ]);
     }
 
     /**
-     * POST /api/v1/applications/{application}/review-notes
+     * POST /applications/{application}/review-notes
      *
-     * Creates a new review note on an application (admin only).
-     *
-     * @param Request $request — body: note_content (string), is_internal (boolean)
-     * @param Application $application — the application to attach the note to
-     * @return JsonResponse — the newly created note
+     * Creates a new review note. Admin only.
+     * The reviewer is always the authenticated admin — the client cannot set it.
      */
-    public function store(Request $request, Application $application): JsonResponse
+    public function store(StoreReviewNoteRequest $request, Application $application): JsonResponse
     {
-        // TODO (Step 10): check admin role, validate, create note
-        return response()->json(['message' => 'Not yet implemented'], 501);
+        $user = $request->user();
+
+        if ($user->role !== 'admin') {
+            return response()->json([
+                'error' => [
+                    'code'    => 'forbidden',
+                    'message' => 'Only administrators can write review notes.',
+                ],
+            ], 403);
+        }
+
+        $note = ReviewNote::create([
+            'application_id' => $application->id,
+            'reviewer_id'    => $user->id,
+            'note_content'   => $request->note_content,
+        ]);
+
+        $note->load('reviewer');
+
+        return response()->json([
+            'data' => new ReviewNoteResource($note),
+        ], 201);
     }
 
     /**
-     * PUT/PATCH /api/v1/review-notes/{note}
+     * PATCH /review-notes/{note}
      *
-     * Updates the content or visibility of a review note (admin only).
-     *
-     * @param Request $request — body: note_content, is_internal
-     * @param ReviewNote $note — the note to update
-     * @return JsonResponse — the updated note
+     * Updates a note's content. Only the original author can edit their own
+     * notes — prevents one admin from silently overwriting another's reasoning.
      */
-    public function update(Request $request, ReviewNote $note): JsonResponse
+    public function update(UpdateReviewNoteRequest $request, ReviewNote $note): JsonResponse
     {
-        // TODO (Step 10): check admin role, check ownership of note, validate, update
-        return response()->json(['message' => 'Not yet implemented'], 501);
+        $user = $request->user();
+
+        if ($user->role !== 'admin') {
+            return response()->json([
+                'error' => [
+                    'code'    => 'forbidden',
+                    'message' => 'Only administrators can edit review notes.',
+                ],
+            ], 403);
+        }
+
+        if ($note->reviewer_id !== $user->id) {
+            return response()->json([
+                'error' => [
+                    'code'    => 'forbidden',
+                    'message' => 'You can only edit your own review notes.',
+                ],
+            ], 403);
+        }
+
+        $note->update(['note_content' => $request->note_content]);
+        $note->load('reviewer');
+
+        return response()->json([
+            'data' => new ReviewNoteResource($note),
+        ]);
     }
 
     /**
-     * DELETE /api/v1/review-notes/{note}
+     * DELETE /review-notes/{note}
      *
-     * Deletes a review note (admin only).
-     *
-     * @param ReviewNote $note — the note to delete
-     * @return JsonResponse — 204 No Content on success
+     * Deletes a review note. Admin-only and authorship-restricted, matching update().
      */
-    public function destroy(ReviewNote $note): JsonResponse
+    public function destroy(Request $request, ReviewNote $note): JsonResponse
     {
-        // TODO (Step 10): check admin role, delete
-        return response()->json(['message' => 'Not yet implemented'], 501);
+        $user = $request->user();
+
+        if ($user->role !== 'admin') {
+            return response()->json([
+                'error' => [
+                    'code'    => 'forbidden',
+                    'message' => 'Only administrators can delete review notes.',
+                ],
+            ], 403);
+        }
+
+        if ($note->reviewer_id !== $user->id) {
+            return response()->json([
+                'error' => [
+                    'code'    => 'forbidden',
+                    'message' => 'You can only delete your own review notes.',
+                ],
+            ], 403);
+        }
+
+        $note->delete();
+
+        return response()->json(null, 204);
     }
 }
