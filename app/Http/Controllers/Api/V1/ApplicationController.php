@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Application\StoreApplicationRequest;
 use App\Http\Requests\Application\UpdateApplicationRequest;
+use App\Http\Requests\Application\UpdateApplicationStatusRequest;
 use App\Http\Resources\ApplicationResource;
 use App\Models\Application;
 use App\Models\ApplicationStatusHistory;
@@ -408,6 +409,65 @@ class ApplicationController extends Controller
 
         // Reload the round so the response payload reflects the updated status
         $application->load('grantRound');
+
+        return response()->json([
+            'data' => new ApplicationResource($application),
+        ]);
+    }
+
+    // PATCH /api/v1/applications/{id}/status
+    // Admin-only endpoint for moving an application through its review lifecycle.
+    // Free-form: admins can set any of the five statuses with no transition rules enforced.
+    public function updateStatus(UpdateApplicationStatusRequest $request, Application $application): JsonResponse
+    {
+        $user = $request->user();
+
+        // Admin gate — applicants use the dedicated submit endpoint to move drafts forward
+        if ($user->role !== 'admin') {
+            return response()->json([
+                'error' => [
+                    'code'    => 'forbidden',
+                    'message' => 'Only administrators can change application status.',
+                ],
+            ], 403);
+        }
+
+        $previousStatus = $application->status;
+        $newStatus      = $request->status;
+
+        // Reject no-op changes so the audit trail only contains real transitions
+        if ($previousStatus === $newStatus) {
+            return response()->json([
+                'error' => [
+                    'code'    => 'no_status_change',
+                    'message' => 'The application is already in this status.',
+                ],
+            ], 422);
+        }
+
+        // Apply the status change and append an audit entry
+        $application->update(['status' => $newStatus]);
+
+        ApplicationStatusHistory::create([
+            'application_id'  => $application->id,
+            'changed_by'      => $user->id,
+            'previous_status' => $previousStatus,
+            'new_status'      => $newStatus,
+            'notes'           => $request->notes,
+            'changed_at'      => now(),
+        ]);
+
+        // Notify the applicant in-app — transactional email is wired in Step 11
+        $readableStatus = str_replace('_', ' ', $newStatus);
+        Notification::create([
+            'user_id'        => $application->applicant_id,
+            'application_id' => $application->id,
+            'type'           => 'application_status_changed',
+            'message'        => "Your application {$application->reference_number} is now {$readableStatus}.",
+            'is_read'        => false,
+        ]);
+
+        $application->load(['applicant', 'grantRound']);
 
         return response()->json([
             'data' => new ApplicationResource($application),

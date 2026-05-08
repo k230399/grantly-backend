@@ -46,6 +46,9 @@ Route::prefix('v1')->group(function () {
         // Submit action — transitions a draft application to "submitted" (cannot be undone)
         Route::post('applications/{application}/submit', [ApplicationController::class, 'submit']);
 
+        // Admin status change — moves an application through the review lifecycle
+        Route::patch('applications/{application}/status', [ApplicationController::class, 'updateStatus']);
+
         // Application Documents — nested under applications for upload/list
         // 'shallow' means destroy uses a top-level route /documents/{id} instead of the nested path
         // Generates: GET /applications/{application}/documents, POST /applications/{application}/documents
