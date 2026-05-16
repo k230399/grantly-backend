@@ -1,20 +1,6 @@
 <?php
 
-/**
- * CORS (Cross-Origin Resource Sharing) configuration for the Laravel API.
- *
- * CORS is a browser security rule that blocks JavaScript from reading responses
- * from a different origin (domain/port) unless the server explicitly says it's OK.
- *
- * Our setup:
- *   - Frontend runs on http://localhost:3000 (Next.js dev server) and https://grantly.au (production)
- *   - Backend runs on http://localhost:8000 (Laravel) and https://app.grantly.au (production)
- *
- * Because they're on different origins the backend must tell the browser
- * "yes, requests from these domains are allowed".
- *
- * This file is read by Laravel's built-in HandleCors middleware.
- */
+// CORS rules for the API. Read by Laravel's HandleCors middleware.
 
 return [
 
@@ -28,9 +14,9 @@ return [
     |
     */
     'allowed_origins' => [
-        'http://localhost:3000',   // local Next.js dev server
-        'https://grantly.au',      // production frontend
-        'https://www.grantly.au',  // production frontend with www
+        'http://localhost:3000',
+        'https://grantly.au',
+        'https://www.grantly.au',
     ],
 
     /*
@@ -93,7 +79,7 @@ return [
     | Allowed Origins Patterns
     |--------------------------------------------------------------------------
     |
-    | Regex patterns for allowed origins — useful if you have many subdomains.
+    | Regex patterns for allowed origins. Useful if you have many subdomains.
     | We're not using patterns, so this is empty.
     |
     */

@@ -10,9 +10,6 @@ class DatabaseSeeder extends Seeder
 {
     use WithoutModelEvents;
 
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
         // User::factory(10)->create();
@@ -22,8 +19,6 @@ class DatabaseSeeder extends Seeder
             'email' => 'test@example.com',
         ]);
 
-        // Ten realistic grant rounds (mix of open / draft / closed) attached to
-        // the admin profile with email user@example.com.
         $this->call(GrantRoundSeeder::class);
     }
 }

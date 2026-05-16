@@ -13,13 +13,10 @@ class AuthController extends Controller
 {
     public function register(RegisterRequest $request): JsonResponse
     {
-        // Pull Supabase connection details from config/services.php,
-        // which reads them from the .env file.
         $supabaseUrl = config('services.supabase.url');
         $anonKey     = config('services.supabase.anon_key');
 
-        // Call Supabase Auth to create the user account.
-        // Supabase handles password hashing and (when enabled) sends the confirmation email.
+        // Supabase handles password hashing and sends the verification email when enabled.
         $response = Http::withHeaders([
             'apikey'       => $anonKey,
             'Content-Type' => 'application/json',
@@ -28,13 +25,12 @@ class AuthController extends Controller
             'password' => $request->password,
         ]);
 
-        // If Supabase rejected the request, parse the error and return a clear response.
+        // Map Supabase's free-text errors to machine-readable codes the frontend can act on.
         if ($response->failed()) {
             $body = $response->json();
             $msg  = $body['msg'] ?? $body['message'] ?? 'Registration failed.';
             $lower = strtolower($msg);
 
-            // Map Supabase's error messages to machine-readable codes the frontend can act on.
             $code = match (true) {
                 str_contains($lower, 'already registered') => 'email_taken',
                 str_contains($lower, 'password')           => 'weak_password',
@@ -50,23 +46,20 @@ class AuthController extends Controller
         }
 
         // Supabase returns the user at root when email confirmation is required,
-        // or nested under 'user' when a session is issued immediately.
+        // and nested under 'user' when a session is issued immediately.
         $userId = $response->json('id') ?? $response->json('user.id');
 
-        // Create a matching row in our profiles table using the same UUID
-        // that Supabase assigned to the user in auth.users.
-        // Wrapped in try/catch so a DB failure returns a clean error instead of a crash.
+        // Mirror the Supabase user into our profiles table using the same UUID.
         try {
             User::create([
                 'id'        => $userId,
                 'email'     => $request->email,
                 'full_name' => $request->full_name,
-                'role'      => 'applicant', // all self-registered users start as applicants
+                'role'      => 'applicant',
             ]);
         } catch (\Illuminate\Database\QueryException $e) {
-            // Postgres error code 23505 means a unique constraint was violated.
-            // This happens when email confirmation is disabled — Supabase returns a 200
-            // for an existing email instead of an error, so we catch the duplicate here.
+            // When email confirmation is disabled Supabase returns 200 for an existing
+            // email instead of an error, so the unique-violation surfaces here (23505).
             if ($e->getCode() === '23505') {
                 return response()->json([
                     'error' => ['code' => 'email_taken', 'message' => 'An account with this email already exists.'],
@@ -88,12 +81,9 @@ class AuthController extends Controller
 
     public function login(LoginRequest $request): JsonResponse
     {
-        // Pull Supabase connection details from config/services.php.
         $supabaseUrl = config('services.supabase.url');
         $anonKey     = config('services.supabase.anon_key');
 
-        // Call Supabase Auth to validate the credentials and issue a JWT.
-        // The grant_type=password flow is the standard username/password login.
         $response = Http::withHeaders([
             'apikey'       => $anonKey,
             'Content-Type' => 'application/json',
@@ -102,14 +92,12 @@ class AuthController extends Controller
             'password' => $request->password,
         ]);
 
-        // If Supabase rejected the credentials, map the error to a friendly message.
         if ($response->failed()) {
-            $body  = $response->json();
-            // Supabase uses different fields across versions — check all known locations.
-            $msg = strtolower($body['error_description'] ?? $body['msg'] ?? $body['message'] ?? '');
+            $body = $response->json();
+            // Supabase moves the error message between fields across versions.
+            $msg  = strtolower($body['error_description'] ?? $body['msg'] ?? $body['message'] ?? '');
 
-            // Supabase deliberately returns the same error for wrong password AND unknown email
-            // — this prevents attackers from probing which emails are registered.
+            // Wrong password and unknown email return the same code so attackers can't probe registrations.
             [$code, $friendlyMessage] = match (true) {
                 str_contains($msg, 'invalid login credentials') => [
                     'invalid_credentials',
@@ -136,15 +124,11 @@ class AuthController extends Controller
             ], $status);
         }
 
-        // Extract the JWT access token from the Supabase response.
-        // The frontend will attach this token to every subsequent API request as a Bearer token.
         $accessToken = $response->json('access_token');
         $expiresIn   = $response->json('expires_in');
         $userId      = $response->json('user.id');
 
-        // Fetch the user's profile from our profiles table using the Supabase user ID.
-        // We return this alongside the token so the frontend knows the user's name and role immediately.
-        // If the profile is missing (e.g. created in Supabase but DB insert failed), return a clear error.
+        // Return the profile alongside the token so the frontend has name and role immediately.
         $user = User::find($userId);
 
         if (! $user) {

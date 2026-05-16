@@ -6,12 +6,8 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Drop is_internal from review_notes.
-     * Review notes are now strictly admin-only — applicant-facing communication
-     * lives on status-change notes (application_status_history.notes), so the
-     * public/internal split adds no value.
-     */
+    // Review notes are now strictly admin-only. Applicant-facing comms goes through
+    // status-change notes on application_status_history, so the public/internal split adds no value.
     public function up(): void
     {
         Schema::table('review_notes', function (Blueprint $table) {
@@ -19,9 +15,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Restore the column with its original default for clean rollbacks.
-     */
     public function down(): void
     {
         Schema::table('review_notes', function (Blueprint $table) {

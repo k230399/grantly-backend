@@ -7,11 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/**
- * Represents a file uploaded as part of an application.
- * Stores metadata only — the actual file lives in Supabase Storage.
- * Laravel issues signed URLs so the browser can download files securely.
- */
+// Stores upload metadata only. The file itself lives in Supabase Storage.
 class ApplicationDocument extends Model
 {
     use HasFactory, HasUuids;
@@ -29,17 +25,10 @@ class ApplicationDocument extends Model
     protected function casts(): array
     {
         return [
-            // uploaded_at is the business-meaningful timestamp for when the file arrived
             'uploaded_at' => 'datetime',
         ];
     }
 
-    // ─── Relationships ────────────────────────────────────────────────────────
-
-    /**
-     * The application this document belongs to.
-     * Returns the Application model.
-     */
     public function application(): BelongsTo
     {
         return $this->belongsTo(Application::class);

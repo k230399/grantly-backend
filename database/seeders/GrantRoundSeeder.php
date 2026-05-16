@@ -9,18 +9,13 @@ use RuntimeException;
 
 class GrantRoundSeeder extends Seeder
 {
-    // Cached admin id — set once in run(), used by every helper to fill created_by.
     private string $adminId;
 
-    /**
-     * Seed the grant_rounds table with ten realistic Australian funding rounds.
-     * Mix: 6 open, 2 draft, 2 closed.
-     * All cover_image_url values are left null — admins upload covers via the UI later.
-     */
+    // Seeds ten realistic Australian funding rounds: 6 open, 2 draft, 2 closed.
+    // Cover images are left null; admins upload via the UI later.
     public function run(): void
     {
-        // Locate the seeding admin. Fail loudly if missing so the FK on created_by
-        // never silently breaks.
+        // Fail loudly if the seeding admin is missing so the FK on created_by never silently breaks.
         $admin = User::where('email', 'user@example.com')
             ->where('role', 'admin')
             ->first();
@@ -35,8 +30,7 @@ class GrantRoundSeeder extends Seeder
         $this->adminId = $admin->id;
 
         $rounds = [
-            // ── OPEN ROUNDS (6) ────────────────────────────────────────────
-
+            // OPEN ROUNDS (6)
             $this->openRound([
                 'title'             => 'Regional Arts Development Fund 2026',
                 'short_description' => 'Supporting regional and remote artists to develop new creative projects.',
@@ -143,8 +137,7 @@ class GrantRoundSeeder extends Seeder
                 'contact_phone'       => '+61 2 8000 1105',
             ]),
 
-            // ── DRAFT ROUNDS (2) ───────────────────────────────────────────
-
+            // DRAFT ROUNDS (2)
             $this->draftRound([
                 'title'             => 'Rural Sports Club Development Initiative',
                 'short_description' => 'Funding for grassroots sporting clubs in rural and regional communities.',
@@ -180,8 +173,7 @@ class GrantRoundSeeder extends Seeder
                 'contact_phone'       => '+61 2 8000 1107',
             ]),
 
-            // ── CLOSED ROUNDS (2) ──────────────────────────────────────────
-
+            // CLOSED ROUNDS (2)
             $this->closedRound([
                 'title'             => 'Regional Library Modernisation Fund',
                 'short_description' => 'Capital funding to modernise public library facilities and digital services.',
@@ -219,7 +211,6 @@ class GrantRoundSeeder extends Seeder
             ]),
         ];
 
-        // Single pass — let HasUuids generate the IDs and timestamps fill themselves.
         foreach ($rounds as $round) {
             GrantRound::create($round);
         }
@@ -231,10 +222,7 @@ class GrantRoundSeeder extends Seeder
         ));
     }
 
-    /**
-     * Defaults for a published, currently-open round. Opens roughly a month ago,
-     * closes ~two months from now, with downstream review milestones following.
-     */
+    // Defaults for a published, currently-open round.
     private function openRound(array $overrides): array
     {
         return array_merge([
@@ -256,10 +244,7 @@ class GrantRoundSeeder extends Seeder
         ], $overrides);
     }
 
-    /**
-     * Defaults for an unpublished draft round — all dates are scheduled in the
-     * future and is_published is false so applicants cannot see it yet.
-     */
+    // Defaults for an unpublished draft round (future dates, hidden from applicants).
     private function draftRound(array $overrides): array
     {
         return array_merge([
@@ -281,10 +266,7 @@ class GrantRoundSeeder extends Seeder
         ], $overrides);
     }
 
-    /**
-     * Defaults for a closed round — opened and closed in the past, with closed_at
-     * stamped so the lifecycle audit trail looks coherent.
-     */
+    // Defaults for a closed round (opened and closed in the past, closed_at stamped).
     private function closedRound(array $overrides): array
     {
         return array_merge([

@@ -1,58 +1,165 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Grantly API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+The Laravel 13 REST API that powers [Grantly](../), a Community Grant Application Portal for Australian organisations. It handles authentication, grant round management, application submissions, document uploads, status workflows, and the grounded AI chatbot.
 
-## About Laravel
+The API is versioned at `/api/v1` and consumed by the Next.js frontend in [`../frontend`](../frontend).
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Tech Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+| Layer | Choice |
+|---|---|
+| Runtime | PHP 8.3+ |
+| Framework | Laravel 13 |
+| Database | Supabase Postgres (via Eloquent) |
+| Auth | Supabase Auth (JWT verified with `firebase/php-jwt`) |
+| Storage | Supabase Storage (S3-compatible via `league/flysystem-aws-s3-v3`) |
+| Email | Resend (`resend/resend-laravel`) |
+| AI | OpenRouter (streamed completions) |
+| Tests | PHPUnit 12 |
+| Tooling | Laravel Pint, Laravel Pail |
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Prerequisites
 
-## Learning Laravel
+- PHP 8.3 or higher with the usual Laravel extensions (`mbstring`, `pdo_pgsql`, `openssl`, `bcmath`, `intl`)
+- Composer 2.x
+- Node.js 20+ and npm (for asset builds)
+- A Supabase project (URL, anon key, JWT signing keys via JWKS)
+- An OpenRouter API key (optional, only needed for the `/ai/chat` endpoint)
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Quickstart
 
 ```bash
-composer require laravel/boost --dev
+git clone <repo-url>
+cd grantly-code/backend
 
-php artisan boost:install
+composer install
+cp .env.example .env
+php artisan key:generate
+
+# Fill in Supabase, S3, and OpenRouter credentials in .env (see below)
+
+php artisan migrate --seed
+php artisan serve
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+The API will be available at `http://localhost:8000/api/v1`.
 
-## Contributing
+To run the full dev stack (HTTP server, queue worker, log tail, Vite) in parallel:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+composer dev
+```
 
-## Code of Conduct
+## Environment Variables
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Copy `.env.example` to `.env` and fill in the project-specific values. The variables that need real credentials are:
 
-## Security Vulnerabilities
+| Variable | Purpose |
+|---|---|
+| `APP_KEY` | Run `php artisan key:generate` |
+| `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | Postgres connection to your Supabase database |
+| `SUPABASE_URL` | Your Supabase project URL (e.g. `https://xxx.supabase.co`) |
+| `SUPABASE_ANON_KEY` | Public anon key from Supabase Dashboard → API |
+| `SUPABASE_JWT_SECRET` | JWT secret from Supabase Dashboard → Settings → API |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`, `AWS_BUCKET`, `AWS_URL`, `AWS_ENDPOINT` | Supabase Storage credentials (S3-compatible) |
+| `RESEND_API_KEY` | Resend API key for transactional email |
+| `OPENROUTER_API_KEY` | OpenRouter API key for the chatbot |
+| `OPENROUTER_MODEL` | Defaults to `openai/gpt-oss-120b:free` |
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Project Structure
+
+```
+app/
+  Http/
+    Controllers/Api/V1/   REST controllers grouped by resource
+    Middleware/           Supabase JWT verification (required + optional variants)
+    Requests/             Form-request validators (extend ApiFormRequest for consistent error shape)
+    Resources/            JSON resource transformers
+  Models/                 Eloquent models (User, GrantRound, Application, etc.)
+config/                   Laravel config (cors.php and services.php are project-specific)
+database/
+  migrations/             Schema definitions
+  seeders/                GrantRoundSeeder ships 10 realistic AU funding rounds
+  factories/              Model factories
+routes/
+  api.php                 All /api/v1 routes
+tests/                    PHPUnit feature + unit tests
+```
+
+## Running the App
+
+| Command | What it does |
+|---|---|
+| `php artisan serve` | Starts the HTTP server on `http://localhost:8000` |
+| `php artisan migrate` | Runs database migrations |
+| `php artisan migrate:fresh --seed` | Drops everything, re-migrates, and seeds 10 grant rounds |
+| `php artisan db:seed --class=GrantRoundSeeder` | Seeds grant rounds only |
+| `php artisan queue:listen` | Processes queued jobs (transactional email, etc.) |
+| `php artisan pail` | Tails application logs in the terminal |
+| `composer dev` | Runs server, queue, logs, and Vite concurrently |
+
+## Testing
+
+```bash
+php artisan test                          # Run the full suite
+php artisan test --filter TestClassName   # Run a single test class
+composer test                             # Clears config cache, then runs the suite
+```
+
+Focus areas for coverage: Supabase JWT middleware, application submission flow, status transition logic, and file validation.
+
+## API Overview
+
+The full request/response shapes for every endpoint live in the root [`CLAUDE.md`](../CLAUDE.md) under the **API Reference** section. The short version:
+
+| Resource | Auth | Notes |
+|---|---|---|
+| `POST /auth/register`, `POST /auth/login` | Public | Proxies Supabase Auth |
+| `GET /grant-rounds`, `GET /grant-rounds/{id}` | Public (optional token) | Admins see all; everyone else sees published + open |
+| `POST/PATCH/DELETE /grant-rounds/*` | Admin | Round lifecycle: draft, open, closed, completed |
+| `GET/POST/PATCH/DELETE /applications/*` | Authenticated | Applicants manage their own; admins read all |
+| `POST /applications/{id}/submit` | Applicant | One-way draft to submitted transition |
+| `PATCH /applications/{id}/status` | Admin | Free-form status change, logged to audit trail |
+| `GET /applications/{id}/status-history` | Authenticated | Append-only audit log |
+| `* /applications/{id}/review-notes` | Admin | Internal review notes (never visible to applicants) |
+| `GET/PATCH /profile` | Authenticated | The caller's own profile |
+| `POST /ai/chat` | Authenticated | Grounded SSE chatbot via OpenRouter |
+
+All responses are JSON. Errors follow the shape `{ error: { code, message, details? } }`.
+
+## Conventions
+
+- **Routes** are versioned under `/api/v1` and grouped by middleware in `routes/api.php`.
+- **Validation** lives in `app/Http/Requests`. Every API form request extends `ApiFormRequest` so validation errors match the project's error shape.
+- **Authorization** lives in the controller (role checks, ownership checks) rather than in form requests, so the response uses the project's error shape rather than Laravel's default 403.
+- **Eloquent resources** in `app/Http/Resources` are the single source of truth for response shapes. Use `whenLoaded` and `whenCounted` to keep payloads small.
+- **Migrations** are immutable once shipped. Add a new migration to change schema; do not edit old ones.
+- **Comments** are section-level only. See `CLAUDE.md` for the full commenting rule.
+
+## Security
+
+- Supabase JWTs are verified against Supabase's published JWKS on every protected request. Public keys are cached for one hour.
+- File uploads are validated server-side (type and size) before being brokered to Supabase Storage via signed URLs. Never trust the client.
+- Row Level Security (RLS) policies in Supabase enforce per-user data isolation as a second line of defence.
+- All traffic must run over HTTPS in production.
+- See the root `CLAUDE.md` for the full security model.
+
+## Deployment
+
+Production runs on Laravel Cloud. Before deploying:
+
+1. Set every variable from the `.env.example` table above in the Laravel Cloud environment.
+2. Run `php artisan migrate --force` as part of the release pipeline.
+3. Confirm the Supabase project's CORS settings allow the production frontend origin.
+4. Smoke test the `/api/v1/grant-rounds` endpoint and a login round-trip before flipping DNS.
+
+## Further Reading
+
+- Project overview, domain rules, and full API reference: [`../CLAUDE.md`](../CLAUDE.md)
+- Backend-specific conventions and commenting rules: [`./CLAUDE.md`](./CLAUDE.md)
+- Frontend integration: [`../frontend/CLAUDE.md`](../frontend/CLAUDE.md)
+- Requirements spec (FR/NFR references): `../Docs/srs.md`
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Proprietary. Internal to the Grantly project.

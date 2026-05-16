@@ -11,25 +11,8 @@ use App\Models\ReviewNote;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/**
- * Handles review notes that admins leave on applications during review.
- * Review notes are strictly admin-only — applicants never see them.
- * Applicant-facing comms is handled separately via status-change notes
- * on the application_status_history audit trail.
- *
- * Endpoints:
- *   GET    /applications/{application}/review-notes
- *   POST   /applications/{application}/review-notes
- *   PATCH  /review-notes/{note}
- *   DELETE /review-notes/{note}
- */
 class ReviewNoteController extends Controller
 {
-    /**
-     * GET /applications/{application}/review-notes
-     *
-     * Lists all review notes on an application, newest first. Admin-only.
-     */
     public function index(Request $request, Application $application): JsonResponse
     {
         if ($request->user()->role !== 'admin') {
@@ -51,12 +34,6 @@ class ReviewNoteController extends Controller
         ]);
     }
 
-    /**
-     * POST /applications/{application}/review-notes
-     *
-     * Creates a new review note. Admin only.
-     * The reviewer is always the authenticated admin — the client cannot set it.
-     */
     public function store(StoreReviewNoteRequest $request, Application $application): JsonResponse
     {
         $user = $request->user();
@@ -70,6 +47,7 @@ class ReviewNoteController extends Controller
             ], 403);
         }
 
+        // Reviewer is always the authenticated admin; the client cannot set it.
         $note = ReviewNote::create([
             'application_id' => $application->id,
             'reviewer_id'    => $user->id,
@@ -83,12 +61,6 @@ class ReviewNoteController extends Controller
         ], 201);
     }
 
-    /**
-     * PATCH /review-notes/{note}
-     *
-     * Updates a note's content. Only the original author can edit their own
-     * notes — prevents one admin from silently overwriting another's reasoning.
-     */
     public function update(UpdateReviewNoteRequest $request, ReviewNote $note): JsonResponse
     {
         $user = $request->user();
@@ -102,6 +74,7 @@ class ReviewNoteController extends Controller
             ], 403);
         }
 
+        // Only the original author can edit, so admins can't silently overwrite each other's reasoning.
         if ($note->reviewer_id !== $user->id) {
             return response()->json([
                 'error' => [
@@ -119,11 +92,6 @@ class ReviewNoteController extends Controller
         ]);
     }
 
-    /**
-     * DELETE /review-notes/{note}
-     *
-     * Deletes a review note. Admin-only and authorship-restricted, matching update().
-     */
     public function destroy(Request $request, ReviewNote $note): JsonResponse
     {
         $user = $request->user();
