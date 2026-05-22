@@ -14,7 +14,7 @@ class UpdateApplicationStatusRequest extends ApiFormRequest
     public function rules(): array
     {
         return [
-            'status' => ['required', 'string', 'in:draft,submitted,under_review,approved,rejected'],
+            'status' => ['required', 'string', 'in:draft,submitted,under_review,approved,rejected,withdrawn'],
             'notes'  => ['nullable', 'string', 'max:2000'],
         ];
     }

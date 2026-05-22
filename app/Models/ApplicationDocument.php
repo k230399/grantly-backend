@@ -18,6 +18,7 @@ class ApplicationDocument extends Model
         'file_type',
         'storage_path',
         'document_type',
+        'form_field_id',
         'file_size_bytes',
         'uploaded_at',
     ];

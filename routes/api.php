@@ -39,6 +39,9 @@ Route::prefix('v1')->group(function () {
         // One-way draft to submitted transition.
         Route::post('applications/{application}/submit', [ApplicationController::class, 'submit']);
 
+        // Applicant pulls a submitted/under_review application out of the pipeline.
+        Route::post('applications/{application}/withdraw', [ApplicationController::class, 'withdraw']);
+
         // Admin status changes for the review workflow.
         Route::patch('applications/{application}/status', [ApplicationController::class, 'updateStatus']);
 

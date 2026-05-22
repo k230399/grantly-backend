@@ -22,6 +22,11 @@ return [
         'key' => env('RESEND_API_KEY'),
     ],
 
+    'frontend' => [
+        // Public-facing app URL used to build links in transactional emails.
+        'url' => env('FRONTEND_URL', 'http://localhost:3000'),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
@@ -36,11 +41,14 @@ return [
     ],
 
     'supabase' => [
-        'url'        => env('SUPABASE_URL'),
-        'anon_key'   => env('SUPABASE_ANON_KEY'),
+        'url'          => env('SUPABASE_URL'),
+        'anon_key'     => env('SUPABASE_ANON_KEY'),
         // The JWT secret is used to verify tokens issued by Supabase Auth.
         // Find it in: Supabase Dashboard → Project Settings → API → JWT Secret
-        'jwt_secret' => env('SUPABASE_JWT_SECRET'),
+        'jwt_secret'   => env('SUPABASE_JWT_SECRET'),
+        // Service role key (server-only) for Supabase Storage REST writes + signed URLs.
+        'service_key'  => env('SUPABASE_SERVICE_KEY'),
+        'storage_bucket' => env('SUPABASE_STORAGE_BUCKET', 'grantly'),
     ],
 
 ];

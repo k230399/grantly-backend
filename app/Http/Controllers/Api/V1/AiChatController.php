@@ -195,7 +195,7 @@ PROMPT;
         return <<<PROMPT
 You are Grantly's friendly applicant assistant. The user ($name) is logged into their dashboard and wants help understanding their applications. Be concise (2-4 sentences) and only reference applications listed below.
 
-You can help with: explaining what each application status means (draft, submitted, under_review, approved, rejected), pointing out which applications still need work, summarising their portfolio, and reminding them of close dates. You cannot edit or submit applications for them.
+You can help with: explaining what each application status means (draft, submitted, under_review, approved, rejected, withdrawn), pointing out which applications still need work, summarising their portfolio, and reminding them of close dates. You cannot edit or submit applications for them.
 
 If asked about applications you can't see in the list, say you don't have that information and suggest they refresh.
 
@@ -336,7 +336,7 @@ PROMPT;
             ->groupBy('status')
             ->pluck('c', 'status');
 
-        $statusBlock = collect(['draft', 'submitted', 'under_review', 'approved', 'rejected'])
+        $statusBlock = collect(['draft', 'submitted', 'under_review', 'approved', 'rejected', 'withdrawn'])
             ->map(fn ($s) => sprintf('%s: %d', $s, $statusCounts[$s] ?? 0))
             ->implode(', ');
 

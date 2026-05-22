@@ -7,15 +7,25 @@ use App\Http\Requests\Application\StoreApplicationRequest;
 use App\Http\Requests\Application\UpdateApplicationRequest;
 use App\Http\Requests\Application\UpdateApplicationStatusRequest;
 use App\Http\Resources\ApplicationResource;
+use App\Mail\ApplicationStatusChanged;
+use App\Mail\ApplicationSubmitted;
 use App\Models\Application;
 use App\Models\ApplicationStatusHistory;
 use App\Models\GrantRound;
 use App\Models\Notification;
+use App\Services\SupabaseStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 class ApplicationController extends Controller
 {
+    public function __construct(private readonly SupabaseStorageService $storage)
+    {
+    }
+
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -30,7 +40,7 @@ class ApplicationController extends Controller
 
         // Optional filters. Unknown status values are ignored rather than 500.
         $statusFilter = $request->query('status');
-        if ($statusFilter && in_array($statusFilter, ['draft', 'submitted', 'under_review', 'approved', 'rejected'])) {
+        if ($statusFilter && in_array($statusFilter, ['draft', 'submitted', 'under_review', 'approved', 'rejected', 'withdrawn'])) {
             $query->where('status', $statusFilter);
         }
 
@@ -200,7 +210,21 @@ class ApplicationController extends Controller
             ], 422);
         }
 
+        // Collect storage paths before the DB cascade wipes application_documents rows.
+        // Without this, files in Supabase Storage would be orphaned (no DB pointer left).
+        $storagePaths = $application->documents()->pluck('storage_path');
+
         $application->delete();
+
+        // Storage cleanup is best-effort: a transient Supabase failure must not leave the
+        // application half-deleted in the DB. Orphans are recoverable, dual-write rollback is not.
+        foreach ($storagePaths as $path) {
+            try {
+                $this->storage->delete($path);
+            } catch (Throwable) {
+                // Swallow.
+            }
+        }
 
         return response()->json(null, 204);
     }
@@ -235,6 +259,23 @@ class ApplicationController extends Controller
         if (is_null($application->total_project_budget)) $missingFields[] = 'total_project_budget';
         if (! $application->declaration_accepted)     $missingFields[] = 'declaration_accepted';
 
+        // Required custom-question document fields must have a matching uploaded file.
+        // Only document fields are validated here; other required field types remain a known gap.
+        $schema = $application->grantRound->application_form_schema;
+        if (is_array($schema) && isset($schema['fields']) && is_array($schema['fields'])) {
+            $uploadedFieldIds = $application->documents()
+                ->whereNotNull('form_field_id')
+                ->pluck('form_field_id')
+                ->all();
+
+            foreach ($schema['fields'] as $field) {
+                $isRequiredDoc = ($field['type'] ?? null) === 'document' && ! empty($field['required']);
+                if ($isRequiredDoc && ! in_array($field['id'] ?? null, $uploadedFieldIds, true)) {
+                    $missingFields[] = $field['label'] ?: $field['id'];
+                }
+            }
+        }
+
         if (! empty($missingFields)) {
             return response()->json([
                 'error' => [
@@ -263,7 +304,7 @@ class ApplicationController extends Controller
             'submitted_at' => now(),
         ]);
 
-        // Audit trail and applicant inbox entry. Transactional email is wired in Step 11.
+        // Audit trail and applicant inbox entry.
         ApplicationStatusHistory::create([
             'application_id'  => $application->id,
             'changed_by'      => $user->id,
@@ -278,6 +319,74 @@ class ApplicationController extends Controller
             'application_id' => $application->id,
             'type'           => 'application_submitted',
             'message'        => "Your application {$application->reference_number} has been submitted.",
+            'is_read'        => false,
+        ]);
+
+        $application->load(['grantRound', 'applicant']);
+
+        // Transactional confirmation email via Resend. Wrapped so a Resend outage
+        // never blocks a legitimate submission (the in-app notification + DB row are the source of truth).
+        try {
+            Mail::to($application->applicant->email)->send(new ApplicationSubmitted($application));
+        } catch (Throwable $e) {
+            Log::warning('ApplicationSubmitted email failed', [
+                'application_id' => $application->id,
+                'error'          => $e->getMessage(),
+            ]);
+        }
+
+        return response()->json([
+            'data' => new ApplicationResource($application),
+        ]);
+    }
+
+    public function withdraw(Request $request, Application $application): JsonResponse
+    {
+        $user = $request->user();
+
+        if ($application->applicant_id !== $user->id) {
+            return response()->json([
+                'error' => [
+                    'code'    => 'forbidden',
+                    'message' => 'You do not have access to this application.',
+                ],
+            ], 403);
+        }
+
+        // Withdraw is only available while the application is still in the review pipeline.
+        // Drafts use discard (DELETE) instead; approved/rejected are terminal and locked.
+        if (! in_array($application->status, ['submitted', 'under_review'], true)) {
+            return response()->json([
+                'error' => [
+                    'code'    => 'not_withdrawable',
+                    'message' => 'This application cannot be withdrawn from its current status.',
+                ],
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $previousStatus = $application->status;
+
+        $application->update(['status' => 'withdrawn']);
+
+        // The reason is stored on the audit-log entry so admins can see why the applicant pulled out.
+        ApplicationStatusHistory::create([
+            'application_id'  => $application->id,
+            'changed_by'      => $user->id,
+            'previous_status' => $previousStatus,
+            'new_status'      => 'withdrawn',
+            'notes'           => $validated['reason'] ?? null,
+            'changed_at'      => now(),
+        ]);
+
+        Notification::create([
+            'user_id'        => $user->id,
+            'application_id' => $application->id,
+            'type'           => 'application_withdrawn',
+            'message'        => "Your application {$application->reference_number} has been withdrawn.",
             'is_read'        => false,
         ]);
 
@@ -335,6 +444,23 @@ class ApplicationController extends Controller
         ]);
 
         $application->load(['applicant', 'grantRound']);
+
+        // Transactional status-change email. Same swallow-on-failure pattern as submit:
+        // the source of truth is the DB row + in-app notification.
+        try {
+            Mail::to($application->applicant->email)->send(new ApplicationStatusChanged(
+                $application,
+                $previousStatus,
+                $newStatus,
+                $request->notes,
+            ));
+        } catch (Throwable $e) {
+            Log::warning('ApplicationStatusChanged email failed', [
+                'application_id' => $application->id,
+                'new_status'     => $newStatus,
+                'error'          => $e->getMessage(),
+            ]);
+        }
 
         return response()->json([
             'data' => new ApplicationResource($application),
