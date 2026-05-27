@@ -11,6 +11,10 @@ use Illuminate\Support\Facades\Http;
 
 class AuthController extends Controller
 {
+    // POST /api/v1/auth/register
+    // Creates a new applicant account by proxying to Supabase Auth and mirroring the user
+    // into our profiles table. Returns 201 with a verification-email message on success;
+    // maps Supabase's free-text errors to machine-readable codes the frontend can act on.
     public function register(RegisterRequest $request): JsonResponse
     {
         $supabaseUrl = config('services.supabase.url');
@@ -79,6 +83,10 @@ class AuthController extends Controller
         ], 201);
     }
 
+    // POST /api/v1/auth/login
+    // Exchanges email + password for a Supabase JWT. Returns access_token + the user
+    // profile so the frontend can route into /dashboard or /admin without a second call.
+    // Wrong-email and wrong-password both surface as invalid_credentials (no probe leak).
     public function login(LoginRequest $request): JsonResponse
     {
         $supabaseUrl = config('services.supabase.url');

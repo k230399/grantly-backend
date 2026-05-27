@@ -13,6 +13,10 @@ use Illuminate\Http\Request;
 
 class ReviewNoteController extends Controller
 {
+    // GET /api/v1/applications/{application}/review-notes
+    // Lists notes attached to the application, newest first. Admin-only — applicants never
+    // see review notes (those are an internal scratchpad; applicant-facing comms go through
+    // the status-change notes field instead).
     public function index(Request $request, Application $application): JsonResponse
     {
         if ($request->user()->role !== 'admin') {
@@ -34,6 +38,9 @@ class ReviewNoteController extends Controller
         ]);
     }
 
+    // POST /api/v1/applications/{application}/review-notes
+    // Creates a new review note. Admin-only. The reviewer_id is always the authenticated
+    // admin's ID; the client cannot spoof attribution.
     public function store(StoreReviewNoteRequest $request, Application $application): JsonResponse
     {
         $user = $request->user();
@@ -61,6 +68,9 @@ class ReviewNoteController extends Controller
         ], 201);
     }
 
+    // PATCH /api/v1/review-notes/{note}
+    // Updates a note's content. Only the original author can edit, so admins cannot
+    // silently overwrite each other's reasoning. The route lives at the shallow path.
     public function update(UpdateReviewNoteRequest $request, ReviewNote $note): JsonResponse
     {
         $user = $request->user();
@@ -92,6 +102,8 @@ class ReviewNoteController extends Controller
         ]);
     }
 
+    // DELETE /api/v1/review-notes/{note}
+    // Deletes a review note. Author-gated like update — only the original author can delete.
     public function destroy(Request $request, ReviewNote $note): JsonResponse
     {
         $user = $request->user();

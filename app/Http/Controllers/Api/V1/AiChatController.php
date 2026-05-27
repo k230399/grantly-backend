@@ -13,6 +13,12 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AiChatController extends Controller
 {
+    // POST /api/v1/ai/chat
+    // Grounded chatbot endpoint. The frontend sends the conversation + a context_type;
+    // the controller assembles the system prompt server-side (so the client can't tamper
+    // with what the model sees) and streams an SSE response from OpenRouter. Each context
+    // (apply / browse / dashboard / admin_review / admin_overview / admin_round_compose) has
+    // its own prompt builder that hydrates from the real DB rows the caller is allowed to see.
     public function chat(Request $request): StreamedResponse|JsonResponse
     {
         // 4000-char cap per message keeps abuse cheap and the prompt small.

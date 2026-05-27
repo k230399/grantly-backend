@@ -14,6 +14,11 @@ use Illuminate\Support\Facades\Storage;
 
 class GrantRoundController extends Controller
 {
+    // GET /api/v1/grant-rounds
+    // Lists grant rounds, scoped by audience: unauthenticated visitors and applicants see
+    // published + open rounds only; admins see every round across every status and can
+    // filter via ?status=. Paginated, ordered by created_at desc for admins / opens_at desc
+    // for applicants. Uses the optional auth middleware so admin context is detected when present.
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -46,6 +51,10 @@ class GrantRoundController extends Controller
         ]);
     }
 
+    // GET /api/v1/grant-rounds/{grantRound}
+    // Returns one grant round in full. Admins can view any round; everyone else gets a 403
+    // when the round is not published. Published-but-closed rounds remain visible so applicants
+    // can revisit a round they applied to.
     public function show(Request $request, GrantRound $grantRound): JsonResponse
     {
         $user = $request->user();
@@ -70,6 +79,10 @@ class GrantRoundController extends Controller
         ]);
     }
 
+    // POST /api/v1/grant-rounds
+    // Creates a new grant round. Admin-only. Status always starts as 'draft' regardless of
+    // what the client sends. Accepts multipart/form-data with an optional cover image that
+    // is uploaded to Supabase Storage and stored as cover_image_url.
     public function store(StoreGrantRoundRequest $request): JsonResponse
     {
         if ($request->user()->role !== 'admin') {
@@ -154,6 +167,10 @@ class GrantRoundController extends Controller
         ], 201);
     }
 
+    // PUT/PATCH /api/v1/grant-rounds/{grantRound}
+    // Updates a grant round. Admin-only. PATCH semantics. Auto-stamps published_at on first
+    // publish, closed_at on the first transition to closed/completed, and updated_by on every
+    // change. Status transitions are free-form here; product layer (UI) enforces the workflow.
     public function update(UpdateGrantRoundRequest $request, GrantRound $grantRound): JsonResponse
     {
         if ($request->user()->role !== 'admin') {
@@ -221,6 +238,10 @@ class GrantRoundController extends Controller
         ]);
     }
 
+    // DELETE /api/v1/grant-rounds/{grantRound}
+    // Deletes a grant round. Admin-only. Blocked with 422 has_applications when any applications
+    // are attached (close the round instead, so the audit trail stays intact). The cover image
+    // in Supabase Storage is best-effort cleaned up afterwards.
     public function destroy(Request $request, GrantRound $grantRound): JsonResponse
     {
         if ($request->user()->role !== 'admin') {

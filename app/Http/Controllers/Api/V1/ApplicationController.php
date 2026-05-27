@@ -27,6 +27,10 @@ class ApplicationController extends Controller
     {
     }
 
+    // GET /api/v1/applications
+    // Lists applications, scoped per role: applicants see their own only, admins see all
+    // with applicant + round eager-loaded. Supports ?status=, ?grant_round_id=, ?search=
+    // filters and is paginated 15-per-page, newest first.
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -68,6 +72,9 @@ class ApplicationController extends Controller
         ]);
     }
 
+    // GET /api/v1/applications/{application}
+    // Returns one application with grant round, applicant, documents, and status history
+    // eager-loaded. Applicants only see their own; admins see any.
     public function show(Request $request, Application $application): JsonResponse
     {
         $user = $request->user();
@@ -89,6 +96,10 @@ class ApplicationController extends Controller
         ]);
     }
 
+    // POST /api/v1/applications
+    // Creates a draft application. Applicant-only. The grant round must be currently
+    // open + published, and the round's allow_multiple_applications flag is respected.
+    // Status always starts as 'draft' regardless of what the client sends.
     public function store(StoreApplicationRequest $request): JsonResponse
     {
         $user = $request->user();
@@ -149,6 +160,9 @@ class ApplicationController extends Controller
         ], 201);
     }
 
+    // PUT/PATCH /api/v1/applications/{application}
+    // Updates a draft application. Applicant-only and draft-only: once submitted the row
+    // is locked. PATCH semantics — only the fields you send are changed.
     public function update(UpdateApplicationRequest $request, Application $application): JsonResponse
     {
         $user = $request->user();
@@ -188,6 +202,10 @@ class ApplicationController extends Controller
         ]);
     }
 
+    // DELETE /api/v1/applications/{application}
+    // Permanently discards a draft application (and its uploaded documents in Supabase
+    // Storage). Applicant-only and draft-only — submitted applications are audit records
+    // and cannot be removed; use withdraw or status-change instead.
     public function destroy(Request $request, Application $application): JsonResponse
     {
         $user = $request->user();
@@ -230,6 +248,11 @@ class ApplicationController extends Controller
         return response()->json(null, 204);
     }
 
+    // POST /api/v1/applications/{application}/submit
+    // One-way transition from draft to submitted. Pre-flight: required project fields,
+    // declaration, every required document (both round-level and custom-question), and the
+    // round is still open. Side effects: status history entry, applicant + admin notifications,
+    // and a queued ApplicationSubmitted email via Resend.
     public function submit(Request $request, Application $application): JsonResponse
     {
         $user = $request->user();
@@ -372,6 +395,10 @@ class ApplicationController extends Controller
         ]);
     }
 
+    // POST /api/v1/applications/{application}/withdraw
+    // Pulls a submitted/under_review application out of the pipeline. Applicant-only.
+    // Optional 'reason' is stored on the audit-log entry. Side effects mirror submit:
+    // status history + applicant notification + admin fan-out. Withdraw is email-free.
     public function withdraw(Request $request, Application $application): JsonResponse
     {
         $user = $request->user();
@@ -441,6 +468,11 @@ class ApplicationController extends Controller
         ]);
     }
 
+    // PATCH /api/v1/applications/{application}/status
+    // Admin-only status change as part of the review workflow. Free-form: any valid status
+    // is allowed, including reopening terminal states (the UI flags this with a warning).
+    // Side effects: status history entry, applicant notification, and a queued
+    // ApplicationStatusChanged email via Resend.
     public function updateStatus(UpdateApplicationStatusRequest $request, Application $application): JsonResponse
     {
         $user = $request->user();

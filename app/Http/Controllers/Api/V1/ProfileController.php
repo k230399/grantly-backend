@@ -11,6 +11,9 @@ use RuntimeException;
 
 class ProfileController extends Controller
 {
+    // GET /api/v1/profile
+    // Returns the authenticated user's full profile. Email and role are exposed read-only;
+    // changes to those go through Supabase Auth and the admin workflow respectively.
     public function show(Request $request): JsonResponse
     {
         return response()->json([
@@ -18,6 +21,10 @@ class ProfileController extends Controller
         ]);
     }
 
+    // PATCH /api/v1/profile
+    // Updates the editable fields on the user's own profile. Whenever the ABN changes, the
+    // controller re-verifies it via the ABR (server-side, so the UI cannot be bypassed) and
+    // rejects cancelled or unknown ABNs with a 422 invalid_abn.
     public function update(UpdateProfileRequest $request, AbrLookupService $abr): JsonResponse
     {
         $user = $request->user();

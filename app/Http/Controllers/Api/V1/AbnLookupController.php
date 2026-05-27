@@ -9,6 +9,10 @@ use RuntimeException;
 
 class AbnLookupController extends Controller
 {
+    // GET /api/v1/abn-lookup/{abn}
+    // Looks up an 11-digit ABN against the Australian Business Register and returns the
+    // normalised record. Errors come back as typed JSON: not_found, cancelled, invalid_format,
+    // not_configured (env var missing), or lookup_failed. The router constrains {abn} to 11 digits.
     public function show(string $abn, AbrLookupService $service): JsonResponse
     {
         try {

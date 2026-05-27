@@ -9,6 +9,10 @@ use Illuminate\Http\Request;
 
 class NotificationController extends Controller
 {
+    // GET /api/v1/notifications
+    // Lists the auth user's notifications, newest first, paginated 15-per-page. Accepts
+    // ?unread=true to filter to unread only. Includes an independent unread_count so the
+    // bell badge stays correct regardless of which page the caller is on.
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -42,6 +46,8 @@ class NotificationController extends Controller
         ]);
     }
 
+    // PATCH /api/v1/notifications/{notification}/read
+    // Marks a single notification as read. Ownership-gated: the auth user must own the row.
     public function markRead(Request $request, Notification $notification): JsonResponse
     {
         if ($notification->user_id !== $request->user()->id) {
@@ -61,6 +67,9 @@ class NotificationController extends Controller
         ]);
     }
 
+    // PATCH /api/v1/notifications/read-all
+    // Bulk-marks every unread notification for the auth user as read. Returns the number
+    // of rows that flipped; reads zero when the inbox was already clear.
     public function markAllRead(Request $request): JsonResponse
     {
         $updated = Notification::where('user_id', $request->user()->id)

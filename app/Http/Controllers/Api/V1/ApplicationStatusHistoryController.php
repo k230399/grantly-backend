@@ -9,6 +9,9 @@ use Illuminate\Http\Request;
 
 class ApplicationStatusHistoryController extends Controller
 {
+    // GET /api/v1/applications/{application}/status-history
+    // Returns the full audit trail of status changes on an application, oldest first.
+    // Applicants only see history on their own apps; admins see any. Read-only by design.
     public function index(Request $request, Application $application): JsonResponse
     {
         $user = $request->user();
