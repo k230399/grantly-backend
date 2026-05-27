@@ -6,6 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ApplicationDocumentResource;
 use App\Models\Application;
 use App\Models\ApplicationDocument;
+use App\Models\DocumentRequest;
+use App\Models\Notification;
+use App\Models\User;
 use App\Services\SupabaseStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,7 +49,8 @@ class ApplicationDocumentController extends Controller
     }
 
     // POST /applications/{application}/documents
-    // Applicant only, draft only. Multipart upload: file + document_type.
+    // Applicant only. Draft uploads use document_type or form_field_id. Submitted/under-review
+    // applications also accept uploads linked to a pending DocumentRequest (admin-driven flow).
     public function store(Request $request, Application $application): JsonResponse
     {
         $user = $request->user();
@@ -60,7 +64,43 @@ class ApplicationDocumentController extends Controller
             ], 403);
         }
 
-        if ($application->status !== 'draft') {
+        $validated = $request->validate([
+            // 10 MB cap (NFR12). The mimes list mirrors the allowed file types in CLAUDE.md.
+            'file'                => ['required', 'file', 'max:10240', 'mimes:pdf,docx,xlsx,jpg,jpeg,png'],
+            // Every document is anchored to exactly one of the three: a round-level required-doc slot,
+            // a custom-question document field, or an admin-driven document request.
+            'document_type'       => ['required_without_all:form_field_id,document_request_id', 'nullable', 'string', 'max:50'],
+            'form_field_id'       => ['required_without_all:document_type,document_request_id', 'nullable', 'uuid'],
+            'document_request_id' => ['required_without_all:document_type,form_field_id', 'nullable', 'uuid'],
+        ]);
+
+        // Resolve and validate the linked document request when present. The request must belong
+        // to this application and must still be pending; otherwise we fall back to the legacy
+        // "draft-only" rule for the other two anchors.
+        $documentRequest = null;
+        if (! empty($validated['document_request_id'])) {
+            $documentRequest = DocumentRequest::where('id', $validated['document_request_id'])
+                ->where('application_id', $application->id)
+                ->first();
+
+            if (! $documentRequest) {
+                return response()->json([
+                    'error' => [
+                        'code'    => 'document_request_not_found',
+                        'message' => 'The document request could not be found on this application.',
+                    ],
+                ], 404);
+            }
+
+            if ($documentRequest->status !== 'pending') {
+                return response()->json([
+                    'error' => [
+                        'code'    => 'request_not_pending',
+                        'message' => 'This document request is no longer accepting uploads.',
+                    ],
+                ], 422);
+            }
+        } elseif ($application->status !== 'draft') {
             return response()->json([
                 'error' => [
                     'code'    => 'not_editable',
@@ -68,16 +108,6 @@ class ApplicationDocumentController extends Controller
                 ],
             ], 422);
         }
-
-        $validated = $request->validate([
-            // 10 MB cap (NFR12). The mimes list mirrors the allowed file types in CLAUDE.md.
-            'file'          => ['required', 'file', 'max:10240', 'mimes:pdf,docx,xlsx,jpg,jpeg,png'],
-            // document_type identifies the slot for round-level "Required Documents".
-            // form_field_id links the upload to a custom-question 'document' field on the schema.
-            // At least one of the two must be present so every document is anchored to something.
-            'document_type' => ['required_without:form_field_id', 'nullable', 'string', 'max:50'],
-            'form_field_id' => ['required_without:document_type', 'nullable', 'uuid'],
-        ]);
 
         $file = $request->file('file');
 
@@ -96,18 +126,39 @@ class ApplicationDocumentController extends Controller
             ], 502);
         }
 
+        // Pick the document_type label that matches the upload's anchor.
+        $documentType = $documentRequest !== null
+            ? 'admin_request'
+            : ($validated['document_type'] ?? 'custom_question');
+
         $document = ApplicationDocument::create([
-            'id'              => $documentId,
-            'application_id'  => $application->id,
-            'file_name'       => $file->getClientOriginalName(),
-            'file_type'       => $extension,
-            'storage_path'    => $storagePath,
-            // Custom-question uploads use a fixed document_type since form_field_id identifies the slot.
-            'document_type'   => $validated['document_type'] ?? 'custom_question',
-            'form_field_id'   => $validated['form_field_id'] ?? null,
-            'file_size_bytes' => $file->getSize(),
-            'uploaded_at'     => now(),
+            'id'                  => $documentId,
+            'application_id'      => $application->id,
+            'file_name'           => $file->getClientOriginalName(),
+            'file_type'           => $extension,
+            'storage_path'        => $storagePath,
+            'document_type'       => $documentType,
+            'form_field_id'       => $validated['form_field_id'] ?? null,
+            'document_request_id' => $documentRequest?->id,
+            'file_size_bytes'     => $file->getSize(),
+            'uploaded_at'         => now(),
         ]);
+
+        // Admin fan-out for request-driven uploads. The request stays pending until an admin
+        // explicitly marks it fulfilled (per the manual-ack design); this notification surfaces
+        // the file so the admin knows to review.
+        if ($documentRequest !== null) {
+            $applicantName = $user->full_name ?: 'The applicant';
+            foreach (User::where('role', 'admin')->pluck('id') as $adminId) {
+                Notification::create([
+                    'user_id'        => $adminId,
+                    'application_id' => $application->id,
+                    'type'           => 'document_uploaded',
+                    'message'        => "{$applicantName} uploaded {$document->file_name} for application {$application->reference_number}: {$documentRequest->label}.",
+                    'is_read'        => false,
+                ]);
+            }
+        }
 
         $document->download_url = $this->safeSign($document->storage_path);
 
@@ -117,7 +168,9 @@ class ApplicationDocumentController extends Controller
     }
 
     // DELETE /documents/{document}
-    // Applicant only, draft only. Removes the object from Supabase Storage and the row.
+    // Applicant only. Draft documents are always deletable. Documents linked to a pending
+    // DocumentRequest are also deletable (so the applicant can replace before admin ack);
+    // anything else is frozen once the application is submitted.
     public function destroy(Request $request, ApplicationDocument $document): JsonResponse
     {
         $user = $request->user();
@@ -132,11 +185,23 @@ class ApplicationDocumentController extends Controller
             ], 403);
         }
 
-        if ($application->status !== 'draft') {
+        $linkedRequest = $document->document_request_id
+            ? DocumentRequest::find($document->document_request_id)
+            : null;
+
+        // A document linked to a still-pending request can be replaced even on a submitted app.
+        // Without that link, the existing "draft only" rule applies.
+        $allowDelete = $linkedRequest
+            ? $linkedRequest->status === 'pending'
+            : $application->status === 'draft';
+
+        if (! $allowDelete) {
             return response()->json([
                 'error' => [
                     'code'    => 'not_deletable',
-                    'message' => 'This application has been submitted and its documents can no longer be deleted.',
+                    'message' => $linkedRequest
+                        ? 'This document request is no longer accepting changes.'
+                        : 'This application has been submitted and its documents can no longer be deleted.',
                 ],
             ], 422);
         }

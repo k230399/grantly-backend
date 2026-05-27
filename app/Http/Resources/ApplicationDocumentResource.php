@@ -16,6 +16,7 @@ class ApplicationDocumentResource extends JsonResource
             'file_type'       => $this->file_type,
             'document_type'   => $this->document_type,
             'form_field_id'   => $this->form_field_id,
+            'document_request_id' => $this->document_request_id,
             'file_size_bytes' => (int) $this->file_size_bytes,
             'storage_path'    => $this->storage_path,
             // The controller attaches a short-lived signed URL as a transient property before resourcing.

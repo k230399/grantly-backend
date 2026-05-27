@@ -51,4 +51,14 @@ return [
         'storage_bucket' => env('SUPABASE_STORAGE_BUCKET', 'grantly'),
     ],
 
+    // Australian Business Register lookup. The GUID is a free per-developer key,
+    // register at https://abr.business.gov.au/Tools/WebServices.
+    'abr' => [
+        'guid'      => env('ABR_GUID'),
+        'base_url'  => env('ABR_BASE_URL', 'https://abr.business.gov.au/json'),
+        // Cache successful lookups for an hour so a typing applicant plus the
+        // PATCH /profile verify only triggers one outbound call to the ABR.
+        'cache_ttl' => (int) env('ABR_CACHE_TTL', 3600),
+    ],
+
 ];

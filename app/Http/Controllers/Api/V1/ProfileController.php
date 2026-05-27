@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Profile\UpdateProfileRequest;
+use App\Services\AbrLookupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use RuntimeException;
 
 class ProfileController extends Controller
 {
@@ -16,16 +18,59 @@ class ProfileController extends Controller
         ]);
     }
 
-    public function update(UpdateProfileRequest $request): JsonResponse
+    public function update(UpdateProfileRequest $request, AbrLookupService $abr): JsonResponse
     {
         $user = $request->user();
+        $data = $request->validated();
+
+        // Re-verify ABN against the ABR whenever the caller changes it, so the rule cannot be
+        // bypassed by hitting the API directly. Cached lookups make this near-free when the
+        // frontend has already validated the same ABN in this hour.
+        if (array_key_exists('abn', $data) && $data['abn'] !== null && $data['abn'] !== $user->abn) {
+            $error = $this->verifyAbn($abr, $data['abn']);
+            if ($error !== null) {
+                return $error;
+            }
+        }
 
         // validated() returns only fields that were sent and passed, so unsent fields stay unchanged.
-        $user->fill($request->validated())->save();
+        $user->fill($data)->save();
 
         return response()->json([
             'data' => $this->toArray($user->fresh()),
         ]);
+    }
+
+    // Returns a JsonResponse to bail with, or null when the ABN is valid + active.
+    private function verifyAbn(AbrLookupService $abr, string $abn): ?JsonResponse
+    {
+        try {
+            $abr->lookup($abn);
+            return null;
+        } catch (RuntimeException $e) {
+            $code = $e->getMessage();
+
+            // Service-misconfig is treated as a soft pass: the format check already ran and we do not
+            // want to block applicants from saving their profile just because the ABR key is missing.
+            if ($code === 'not_configured') {
+                return null;
+            }
+
+            $message = match ($code) {
+                'not_found' => 'This ABN was not found on the Australian Business Register.',
+                'cancelled' => 'This ABN is on the register but is no longer active.',
+                'invalid_format' => 'ABN must be exactly 11 digits.',
+                default => 'Could not verify this ABN against the Australian Business Register. Please try again.',
+            };
+
+            return response()->json([
+                'error' => [
+                    'code'    => 'invalid_abn',
+                    'message' => $message,
+                    'details' => ['abn' => [$message]],
+                ],
+            ], 422);
+        }
     }
 
     private function toArray($user): array

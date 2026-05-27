@@ -13,6 +13,7 @@ use App\Models\Application;
 use App\Models\ApplicationStatusHistory;
 use App\Models\GrantRound;
 use App\Models\Notification;
+use App\Models\User;
 use App\Services\SupabaseStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -259,8 +260,9 @@ class ApplicationController extends Controller
         if (is_null($application->total_project_budget)) $missingFields[] = 'total_project_budget';
         if (! $application->declaration_accepted)     $missingFields[] = 'declaration_accepted';
 
-        // Required custom-question document fields must have a matching uploaded file.
-        // Only document fields are validated here; other required field types remain a known gap.
+        // Every required custom-question field must be answered. Documents are validated against
+        // application_documents rows linked by form_field_id; every other type is validated against
+        // the answer stored under form_data[field.id].
         $schema = $application->grantRound->application_form_schema;
         if (is_array($schema) && isset($schema['fields']) && is_array($schema['fields'])) {
             $uploadedFieldIds = $application->documents()
@@ -268,10 +270,26 @@ class ApplicationController extends Controller
                 ->pluck('form_field_id')
                 ->all();
 
+            $formData = is_array($application->form_data) ? $application->form_data : [];
+
             foreach ($schema['fields'] as $field) {
-                $isRequiredDoc = ($field['type'] ?? null) === 'document' && ! empty($field['required']);
-                if ($isRequiredDoc && ! in_array($field['id'] ?? null, $uploadedFieldIds, true)) {
-                    $missingFields[] = $field['label'] ?: $field['id'];
+                if (empty($field['required'])) {
+                    continue;
+                }
+
+                $fieldId = $field['id'] ?? null;
+                if (! $fieldId) {
+                    continue;
+                }
+
+                $type    = $field['type'] ?? null;
+                $label   = $field['label'] ?? null;
+                $missing = $type === 'document'
+                    ? ! in_array($fieldId, $uploadedFieldIds, true)
+                    : $this->isAnswerEmpty($formData[$fieldId] ?? null);
+
+                if ($missing) {
+                    $missingFields[] = $label ?: $fieldId;
                 }
             }
         }
@@ -323,6 +341,20 @@ class ApplicationController extends Controller
         ]);
 
         $application->load(['grantRound', 'applicant']);
+
+        // Admin fan-out: every admin gets an in-app notification that a new application landed.
+        // Done inline because admin counts are small; revisit with a queued job if that changes.
+        $roundTitle = $application->grantRound->title ?? 'a grant round';
+        $applicantName = $user->full_name ?: 'An applicant';
+        foreach (User::where('role', 'admin')->pluck('id') as $adminId) {
+            Notification::create([
+                'user_id'        => $adminId,
+                'application_id' => $application->id,
+                'type'           => 'application_submitted',
+                'message'        => "{$applicantName} submitted application {$application->reference_number} to {$roundTitle}.",
+                'is_read'        => false,
+            ]);
+        }
 
         // Transactional confirmation email via Resend. Wrapped so a Resend outage
         // never blocks a legitimate submission (the in-app notification + DB row are the source of truth).
@@ -389,6 +421,18 @@ class ApplicationController extends Controller
             'message'        => "Your application {$application->reference_number} has been withdrawn.",
             'is_read'        => false,
         ]);
+
+        // Admin fan-out for the same event so reviewers know the queue shrank.
+        $applicantName = $user->full_name ?: 'the applicant';
+        foreach (User::where('role', 'admin')->pluck('id') as $adminId) {
+            Notification::create([
+                'user_id'        => $adminId,
+                'application_id' => $application->id,
+                'type'           => 'application_withdrawn',
+                'message'        => "Application {$application->reference_number} was withdrawn by {$applicantName}.",
+                'is_read'        => false,
+            ]);
+        }
 
         $application->load('grantRound');
 
@@ -465,5 +509,30 @@ class ApplicationController extends Controller
         return response()->json([
             'data' => new ApplicationResource($application),
         ]);
+    }
+
+    // Used by submit() to decide whether a required custom-question answer counts as missing.
+    // Numbers like 0 are valid; only null/empty-string/empty-array/whitespace-only count as empty.
+    private function isAnswerEmpty(mixed $answer): bool
+    {
+        if (is_null($answer)) {
+            return true;
+        }
+
+        if (is_string($answer)) {
+            return trim($answer) === '';
+        }
+
+        if (is_array($answer)) {
+            // multi_choice ships an array of selected option values; treat whitespace-only entries as absent.
+            foreach ($answer as $value) {
+                if (is_string($value) ? trim($value) !== '' : ! is_null($value)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        return false;
     }
 }

@@ -12,25 +12,38 @@ return new class extends Migration
     // numbers under concurrent inserts.
     public function up(): void
     {
-        // IF NOT EXISTS keeps the migration safe to re-run after a fresh seed.
-        DB::statement('CREATE SEQUENCE IF NOT EXISTS applications_ref_number_seq START 1 INCREMENT 1');
+        $driver = DB::connection()->getDriverName();
 
+        if ($driver === 'pgsql') {
+            // IF NOT EXISTS keeps the migration safe to re-run after a fresh seed.
+            DB::statement('CREATE SEQUENCE IF NOT EXISTS applications_ref_number_seq START 1 INCREMENT 1');
+
+            Schema::table('applications', function (Blueprint $table) {
+                // nullable() so existing rows can be back-filled before the NOT NULL tightening below.
+                $table->unsignedInteger('ref_number')->nullable()->unique()->after('id');
+            });
+
+            // DEFAULT pulls from the sequence so future inserts get a value automatically.
+            DB::statement(
+                "ALTER TABLE applications ALTER COLUMN ref_number SET DEFAULT nextval('applications_ref_number_seq')"
+            );
+
+            // Back-fill existing rows.
+            DB::statement(
+                "UPDATE applications SET ref_number = nextval('applications_ref_number_seq') WHERE ref_number IS NULL"
+            );
+
+            DB::statement('ALTER TABLE applications ALTER COLUMN ref_number SET NOT NULL');
+            return;
+        }
+
+        // SQLite (used by the test suite) and other drivers without SEQUENCE support:
+        // emulate auto-increment via an AUTOINCREMENT-style table and a model observer.
+        // Tests can either set ref_number explicitly or leave the column nullable; the
+        // production path still flows through the Postgres branch above.
         Schema::table('applications', function (Blueprint $table) {
-            // nullable() so existing rows can be back-filled before the NOT NULL tightening below.
             $table->unsignedInteger('ref_number')->nullable()->unique()->after('id');
         });
-
-        // DEFAULT pulls from the sequence so future inserts get a value automatically.
-        DB::statement(
-            "ALTER TABLE applications ALTER COLUMN ref_number SET DEFAULT nextval('applications_ref_number_seq')"
-        );
-
-        // Back-fill existing rows.
-        DB::statement(
-            "UPDATE applications SET ref_number = nextval('applications_ref_number_seq') WHERE ref_number IS NULL"
-        );
-
-        DB::statement('ALTER TABLE applications ALTER COLUMN ref_number SET NOT NULL');
     }
 
     // Column must be dropped before the sequence, since the DEFAULT still depends on it.
@@ -40,6 +53,8 @@ return new class extends Migration
             $table->dropColumn('ref_number');
         });
 
-        DB::statement('DROP SEQUENCE IF EXISTS applications_ref_number_seq');
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP SEQUENCE IF EXISTS applications_ref_number_seq');
+        }
     }
 };

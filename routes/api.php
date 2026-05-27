@@ -1,10 +1,12 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AbnLookupController;
 use App\Http\Controllers\Api\V1\AiChatController;
 use App\Http\Controllers\Api\V1\ApplicationController;
 use App\Http\Controllers\Api\V1\ApplicationDocumentController;
 use App\Http\Controllers\Api\V1\ApplicationStatusHistoryController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\DocumentRequestController;
 use App\Http\Controllers\Api\V1\GrantRoundController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\ProfileController;
@@ -61,6 +63,12 @@ Route::prefix('v1')->group(function () {
             ->only(['index', 'store', 'update', 'destroy'])
             ->shallow();
 
+        // Admin-driven document requests. POST + GET nested under applications,
+        // PATCH lives at /document-requests/{id} via shallow nesting.
+        Route::apiResource('applications.document-requests', DocumentRequestController::class)
+            ->only(['index', 'store', 'update'])
+            ->shallow();
+
         // Per-user in-app notification inbox.
         Route::get('notifications', [NotificationController::class, 'index']);
         Route::patch('notifications/read-all', [NotificationController::class, 'markAllRead']);
@@ -69,6 +77,11 @@ Route::prefix('v1')->group(function () {
         // The authenticated user's own profile.
         Route::get('profile', [ProfileController::class, 'show']);
         Route::patch('profile', [ProfileController::class, 'update']);
+
+        // Australian Business Register lookup used by the profile ABN field.
+        // The {abn} segment is constrained to 11 digits so anything else 404s at the router.
+        Route::get('abn-lookup/{abn}', [AbnLookupController::class, 'show'])
+            ->where('abn', '\d{11}');
 
         // AI chatbot streaming endpoint. The controller does its own ownership check.
         Route::post('ai/chat', [AiChatController::class, 'chat']);

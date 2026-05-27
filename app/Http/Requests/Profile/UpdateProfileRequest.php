@@ -16,7 +16,8 @@ class UpdateProfileRequest extends ApiFormRequest
         return [
             'full_name'         => ['sometimes', 'required', 'string', 'max:255'],
             'organisation_name' => ['sometimes', 'nullable', 'string', 'max:255'],
-            // ABN format only; ABR API lookup lands with Step 12.
+            // ABN format check. The controller calls AbrLookupService when the value changes,
+            // rejecting cancelled or unknown ABNs with a separate invalid_abn error code.
             'abn'               => ['sometimes', 'nullable', 'string', 'regex:/^\d{11}$/'],
             'phone'             => ['sometimes', 'nullable', 'string', 'max:20'],
             'address'           => ['sometimes', 'nullable', 'string', 'max:1000'],

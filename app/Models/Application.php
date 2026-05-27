@@ -89,4 +89,9 @@ class Application extends Model
     {
         return $this->hasMany(Notification::class);
     }
+
+    public function documentRequests(): HasMany
+    {
+        return $this->hasMany(DocumentRequest::class);
+    }
 }

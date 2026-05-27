@@ -19,6 +19,7 @@ class ApplicationDocument extends Model
         'storage_path',
         'document_type',
         'form_field_id',
+        'document_request_id',
         'file_size_bytes',
         'uploaded_at',
     ];
@@ -33,5 +34,10 @@ class ApplicationDocument extends Model
     public function application(): BelongsTo
     {
         return $this->belongsTo(Application::class);
+    }
+
+    public function documentRequest(): BelongsTo
+    {
+        return $this->belongsTo(DocumentRequest::class);
     }
 }

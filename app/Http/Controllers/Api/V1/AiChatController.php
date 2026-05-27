@@ -53,7 +53,9 @@ class AiChatController extends Controller
     // Apply surface: bot sees the round details plus the draft's current values.
     private function buildApplyPrompt(User $user, string $applicationId): string|JsonResponse
     {
-        $application = Application::with('grantRound')->find($applicationId);
+        $application = Application::with(['grantRound', 'documentRequests' => function ($q) {
+            $q->whereIn('status', ['pending', 'fulfilled'])->orderByDesc('requested_at');
+        }])->find($applicationId);
 
         if (! $application || $application->applicant_id !== $user->id) {
             return response()->json([
@@ -85,6 +87,20 @@ class AiChatController extends Controller
             $application->declaration_accepted ? 'yes' : 'no',
         );
 
+        // Surface admin-driven document requests so the assistant can nudge the applicant
+        // to upload the right files. Hidden when there are none.
+        $requestsBlock = '';
+        if ($application->documentRequests->isNotEmpty()) {
+            $requestsList = $application->documentRequests->map(fn ($r) => sprintf(
+                '- %s (%s)%s',
+                $r->label,
+                $r->status,
+                $r->description ? ': ' . str_replace("\n", ' ', $r->description) : '',
+            ))->implode("\n");
+
+            $requestsBlock = "\n\nDOCUMENTS REQUESTED BY ADMIN:\n$requestsList";
+        }
+
         return <<<PROMPT
 You are Grantly's friendly application assistant. The user is filling out a grant application and needs help. Be concise (2-4 sentences unless they ask for a draft), encouraging, and specific to their grant round.
 
@@ -96,7 +112,7 @@ Here is everything you know about their context:
 
 $roundBlock
 
-$draftBlock
+$draftBlock$requestsBlock
 PROMPT;
     }
 
@@ -223,6 +239,7 @@ PROMPT;
             'documents',
             'statusHistory',
             'reviewNotes.reviewer',
+            'documentRequests.document',
         ])->find($applicationId);
 
         if (! $application) {
@@ -277,6 +294,18 @@ PROMPT;
             ? '(no documents uploaded)'
             : $docs->map(fn ($d) => sprintf('- %s (%s)', $d->file_name, $d->document_type ?? 'document'))->implode("\n");
 
+        // Admin-driven document requests, with their fulfillment state and the linked file when present.
+        $requests = $application->documentRequests;
+        $requestsList = $requests->isEmpty()
+            ? '(no document requests)'
+            : $requests->map(fn ($r) => sprintf(
+                '- %s [%s]%s%s',
+                $r->label,
+                $r->status,
+                $r->description ? ': ' . str_replace("\n", ' ', $r->description) : '',
+                $r->document ? ' — uploaded: ' . $r->document->file_name : ' — no file yet',
+            ))->implode("\n");
+
         $historyList = $history->isEmpty()
             ? '(no status changes yet)'
             : $history->map(fn ($h) => sprintf(
@@ -309,6 +338,9 @@ $applicantBlock
 
 DOCUMENTS:
 $docsList
+
+REQUESTED DOCUMENTS:
+$requestsList
 
 STATUS HISTORY:
 $historyList
