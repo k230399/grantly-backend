@@ -160,4 +160,50 @@ class AuthController extends Controller
             ],
         ]);
     }
+
+    // POST /api/v1/auth/set-password
+    // Completes an invite (or any magic-link) by setting the account's password. The frontend
+    // passes the access_token it received in the redirect hash; we proxy Supabase's PUT
+    // /auth/v1/user with that token as the bearer. No profile lookup here — the profile row was
+    // already created when the admin sent the invite.
+    public function setPassword(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'access_token' => ['required', 'string'],
+            'password'     => ['required', 'string', 'min:8'],
+        ]);
+
+        $supabaseUrl = config('services.supabase.url');
+        $anonKey     = config('services.supabase.anon_key');
+
+        $response = Http::withToken($data['access_token'])
+            ->withHeaders(['apikey' => $anonKey])
+            ->put("{$supabaseUrl}/auth/v1/user", [
+                'password' => $data['password'],
+            ]);
+
+        if ($response->failed()) {
+            $body  = $response->json();
+            $msg   = strtolower($body['msg'] ?? $body['message'] ?? $body['error_description'] ?? '');
+
+            // An expired/used/invalid link is the common case (401/403 from Supabase).
+            $code = in_array($response->status(), [401, 403], true) || str_contains($msg, 'token')
+                ? 'invalid_or_expired'
+                : (str_contains($msg, 'password') ? 'weak_password' : 'set_password_failed');
+
+            $message = match ($code) {
+                'invalid_or_expired' => 'This invitation link is invalid or has expired. Ask an admin to resend it.',
+                'weak_password'      => 'Please choose a stronger password (at least 8 characters).',
+                default              => 'Could not set your password. Please try again.',
+            };
+
+            return response()->json([
+                'error' => ['code' => $code, 'message' => $message],
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => 'Your password has been set. You can now sign in.',
+        ]);
+    }
 }

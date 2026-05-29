@@ -23,6 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // does not block the request when no token is provided. Used on public
             // routes that also have admin-specific behaviour (e.g. GET /grant-rounds).
             'auth.supabase.optional' => \App\Http\Middleware\OptionalVerifySupabaseToken::class,
+            // Gate for admin-only routes. Runs after 'auth.supabase' (which sets the user)
+            // and returns 403 unless that user's role is 'admin'.
+            'admin'                  => \App\Http\Middleware\EnsureAdmin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AbnLookupController;
+use App\Http\Controllers\Api\V1\AdminUserController;
 use App\Http\Controllers\Api\V1\AiChatController;
 use App\Http\Controllers\Api\V1\ApplicationController;
 use App\Http\Controllers\Api\V1\ApplicationDocumentController;
@@ -19,6 +20,8 @@ Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
         Route::post('register', [AuthController::class, 'register']);
         Route::post('login', [AuthController::class, 'login']);
+        // Completes an invite/magic-link by setting the password from the redirect access_token.
+        Route::post('set-password', [AuthController::class, 'setPassword']);
     });
 
     // Public grant round reads. The optional middleware decodes a token when present so the
@@ -85,5 +88,14 @@ Route::prefix('v1')->group(function () {
 
         // AI chatbot streaming endpoint. The controller does its own ownership check.
         Route::post('ai/chat', [AiChatController::class, 'chat']);
+
+        // Admin-only user + role management (the Team screen). The 'admin' middleware
+        // returns 403 for any non-admin; 'auth.supabase' above has already set the user.
+        Route::middleware('admin')->prefix('admin')->group(function () {
+            Route::get('users', [AdminUserController::class, 'index']);
+            Route::post('admins', [AdminUserController::class, 'invite']);
+            Route::post('admins/{user}/resend', [AdminUserController::class, 'resend']);
+            Route::patch('users/{user}/role', [AdminUserController::class, 'updateRole']);
+        });
     });
 });
