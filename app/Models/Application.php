@@ -21,6 +21,9 @@ class Application extends Model
     protected $fillable = [
         'applicant_id',
         'grant_round_id',
+        'applicant_type',
+        'abn',
+        'organisation_name',
         'project_name',
         'project_description',
         'funding_requested',

@@ -16,6 +16,10 @@ class ApplicationResource extends JsonResource
             'applicant_id'   => $this->applicant_id,
             'grant_round_id' => $this->grant_round_id,
 
+            'applicant_type'    => $this->applicant_type,
+            'abn'               => $this->abn,
+            'organisation_name' => $this->organisation_name,
+
             'project_name'        => $this->project_name,
             'project_description' => $this->project_description,
 

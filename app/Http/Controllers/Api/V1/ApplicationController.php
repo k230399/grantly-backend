@@ -14,11 +14,13 @@ use App\Models\ApplicationStatusHistory;
 use App\Models\GrantRound;
 use App\Models\Notification;
 use App\Models\User;
+use App\Services\AbrLookupService;
 use App\Services\SupabaseStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use RuntimeException;
 use Throwable;
 
 class ApplicationController extends Controller
@@ -253,7 +255,7 @@ class ApplicationController extends Controller
     // declaration, every required document (both round-level and custom-question), and the
     // round is still open. Side effects: status history entry, applicant + admin notifications,
     // and a queued ApplicationSubmitted email via Resend.
-    public function submit(Request $request, Application $application): JsonResponse
+    public function submit(Request $request, Application $application, AbrLookupService $abr): JsonResponse
     {
         $user = $request->user();
 
@@ -317,6 +319,13 @@ class ApplicationController extends Controller
             }
         }
 
+        // Organisations must supply an ABN. We only require its presence in the missing-fields
+        // pass; the live ABR re-verify (which can return a typed error) runs just below so its
+        // message is not flattened into the generic incomplete_application list.
+        if ($application->applicant_type === 'organisation' && empty($application->abn)) {
+            $missingFields[] = 'ABN';
+        }
+
         if (! empty($missingFields)) {
             return response()->json([
                 'error' => [
@@ -327,6 +336,17 @@ class ApplicationController extends Controller
                     ],
                 ],
             ], 422);
+        }
+
+        // For organisations, re-verify the ABN against the ABR server-side so the gate cannot be
+        // bypassed by hitting the API directly. Mirrors ProfileController: a misconfigured or
+        // unreachable register is a soft pass (the format rule already ran), while a not-found or
+        // cancelled ABN blocks submission.
+        if ($application->applicant_type === 'organisation') {
+            $abnError = $this->verifyAbn($abr, (string) $application->abn);
+            if ($abnError !== null) {
+                return $abnError;
+            }
         }
 
         // The round may have closed while the applicant was filling in the form.
@@ -344,6 +364,16 @@ class ApplicationController extends Controller
             'status'       => 'submitted',
             'submitted_at' => now(),
         ]);
+
+        // Convenience backfill: if the organisation applicant has no ABN on their profile yet,
+        // copy this application's verified details across. We never overwrite an existing profile
+        // value, so a deliberate profile edit always wins.
+        if ($application->applicant_type === 'organisation' && empty($user->abn) && ! empty($application->abn)) {
+            $user->forceFill([
+                'abn'               => $application->abn,
+                'organisation_name' => $user->organisation_name ?: $application->organisation_name,
+            ])->save();
+        }
 
         // Audit trail and applicant inbox entry.
         ApplicationStatusHistory::create([
@@ -566,5 +596,37 @@ class ApplicationController extends Controller
         }
 
         return false;
+    }
+
+    // Re-verifies an organisation's ABN against the ABR at submit time. Returns a JsonResponse to
+    // bail with, or null when the ABN is valid + active. Mirrors ProfileController::verifyAbn: a
+    // missing/unreachable register is a soft pass so an ABR outage cannot block a real submission.
+    private function verifyAbn(AbrLookupService $abr, string $abn): ?JsonResponse
+    {
+        try {
+            $abr->lookup($abn);
+            return null;
+        } catch (RuntimeException $e) {
+            $code = $e->getMessage();
+
+            if ($code === 'not_configured' || $code === 'lookup_failed') {
+                return null;
+            }
+
+            $message = match ($code) {
+                'not_found'      => 'This ABN was not found on the Australian Business Register.',
+                'cancelled'      => 'This ABN is on the register but is no longer active.',
+                'invalid_format' => 'ABN must be exactly 11 digits.',
+                default          => 'Could not verify this ABN against the Australian Business Register. Please try again.',
+            };
+
+            return response()->json([
+                'error' => [
+                    'code'    => 'invalid_abn',
+                    'message' => $message,
+                    'details' => ['abn' => [$message]],
+                ],
+            ], 422);
+        }
     }
 }

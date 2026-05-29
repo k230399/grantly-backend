@@ -16,6 +16,11 @@ class UpdateApplicationRequest extends ApiFormRequest
     public function rules(): array
     {
         return [
+            // ABN is format-checked only; a valid ABN is enforced at submit for organisations.
+            'applicant_type'    => ['sometimes', 'in:individual,organisation'],
+            'abn'               => ['sometimes', 'nullable', 'string', 'regex:/^\d{11}$/'],
+            'organisation_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+
             'project_name'        => ['sometimes', 'required', 'string', 'max:255'],
             'project_description' => ['sometimes', 'required', 'string'],
 
@@ -31,6 +36,7 @@ class UpdateApplicationRequest extends ApiFormRequest
     public function messages(): array
     {
         return [
+            'abn.regex'                => 'ABN must be exactly 11 digits.',
             'total_project_budget.gte' => 'The total project budget must be greater than or equal to the funding requested.',
         ];
     }
