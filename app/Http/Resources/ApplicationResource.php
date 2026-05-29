@@ -49,6 +49,14 @@ class ApplicationResource extends JsonResource
 
             'documents_count' => $this->whenCounted('documents'),
 
+            // Full document list when eager-loaded (the detail view). Each row carries a short-lived
+            // signed download_url the controller attaches before resourcing. whenLoaded keeps the
+            // list view (which only withCount's documents) from paying to serialise every row.
+            'documents' => $this->whenLoaded(
+                'documents',
+                fn () => ApplicationDocumentResource::collection($this->documents)
+            ),
+
             'created_at' => $this->created_at->toIso8601String(),
             'updated_at' => $this->updated_at->toIso8601String(),
         ];

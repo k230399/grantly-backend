@@ -3,7 +3,7 @@
      Inline styles only, table-based layout, for maximum email-client compatibility.
 
      Child views provide:
-       @section('icon')    — base64 SVG <img> tag for the circular icon at top
+       @section('icon')    — optional. If omitted, the circular icon badge is not rendered.
        @section('heading') — H1 text (string)
        @section('body')    — main body HTML (paragraphs, key/value rows, etc.)
        @section('cta')     — the primary button (full <a> tag, styled inline)
@@ -56,15 +56,17 @@
             <tr>
               <td style="padding: 40px 40px 32px;">
 
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 28px;">
-                  <tr>
-                    <td align="center">
-                      <div style="width: 64px; height: 64px; background-color: #dbeafe; border-radius: 50%; display: inline-block; text-align: center; line-height: 64px;">
-                        @yield('icon')
-                      </div>
-                    </td>
-                  </tr>
-                </table>
+                @hasSection('icon')
+                  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 28px;">
+                    <tr>
+                      <td align="center">
+                        <div style="width: 64px; height: 64px; background-color: #dbeafe; border-radius: 50%; display: inline-block; text-align: center; line-height: 64px;">
+                          @yield('icon')
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+                @endif
 
                 <h1 style="margin: 0 0 12px; font-size: 22px; font-weight: 700; color: #111827; text-align: center; letter-spacing: -0.3px;">
                   @yield('heading')

@@ -59,9 +59,13 @@ class AiChatController extends Controller
     // Apply surface: bot sees the round details plus the draft's current values.
     private function buildApplyPrompt(User $user, string $applicationId): string|JsonResponse
     {
-        $application = Application::with(['grantRound', 'documentRequests' => function ($q) {
-            $q->whereIn('status', ['pending', 'fulfilled'])->orderByDesc('requested_at');
-        }])->find($applicationId);
+        $application = Application::with([
+            'grantRound',
+            'documents:id,application_id,form_field_id',
+            'documentRequests' => function ($q) {
+                $q->whereIn('status', ['pending', 'fulfilled'])->orderByDesc('requested_at');
+            },
+        ])->find($applicationId);
 
         if (! $application || $application->applicant_id !== $user->id) {
             return response()->json([
@@ -93,6 +97,10 @@ class AiChatController extends Controller
             $application->declaration_accepted ? 'yes' : 'no',
         );
 
+        // Custom questions defined by this round, plus the applicant's current answers, so the
+        // assistant can explain and help phrase them. Empty when the round has no custom schema.
+        $customBlock = $this->formatCustomQuestions($round, $application);
+
         // Surface admin-driven document requests so the assistant can nudge the applicant
         // to upload the right files. Hidden when there are none.
         $requestsBlock = '';
@@ -118,8 +126,67 @@ Here is everything you know about their context:
 
 $roundBlock
 
-$draftBlock$requestsBlock
+$draftBlock$customBlock$requestsBlock
 PROMPT;
+    }
+
+    // Builds a "CUSTOM QUESTIONS" block from the round's application_form_schema, pairing each
+    // field with the applicant's current answer (from form_data, or upload status for document
+    // fields). Choice answers are mapped from stored option ids back to their labels. Returns an
+    // empty string when the round defines no custom schema.
+    private function formatCustomQuestions(?GrantRound $round, Application $application): string
+    {
+        $schema = $round?->application_form_schema;
+        if (! is_array($schema) || empty($schema['fields']) || ! is_array($schema['fields'])) {
+            return '';
+        }
+
+        $formData = is_array($application->form_data) ? $application->form_data : [];
+        $uploadedFieldIds = $application->documents
+            ->whereNotNull('form_field_id')
+            ->pluck('form_field_id')
+            ->all();
+
+        $lines = [];
+        foreach ($schema['fields'] as $field) {
+            $label   = $field['label'] ?? '(untitled question)';
+            $type    = $field['type'] ?? 'text';
+            $fieldId = $field['id'] ?? null;
+            $req     = empty($field['required']) ? 'optional' : 'required';
+
+            // Map option ids -> labels so choice answers read as words, not ids.
+            $optionLabels = [];
+            foreach (($field['options'] ?? []) as $opt) {
+                if (is_array($opt) && isset($opt['id'])) {
+                    $optionLabels[$opt['id']] = $opt['label'] ?? $opt['id'];
+                }
+            }
+            $optionsHint = $optionLabels ? ' [options: ' . implode(', ', array_values($optionLabels)) . ']' : '';
+            $help        = ! empty($field['help_text']) ? ' — help: ' . str_replace("\n", ' ', $field['help_text']) : '';
+
+            if ($type === 'document') {
+                $answer = in_array($fieldId, $uploadedFieldIds, true) ? '(document uploaded)' : '(no document yet)';
+            } else {
+                $raw = $fieldId !== null ? ($formData[$fieldId] ?? null) : null;
+                if (is_array($raw)) {
+                    $mapped = array_map(fn ($v) => $optionLabels[$v] ?? $v, $raw);
+                    $answer = $mapped ? implode(', ', $mapped) : '(blank)';
+                } elseif ($raw === null || $raw === '') {
+                    $answer = '(blank)';
+                } else {
+                    $answer = $optionLabels[$raw] ?? (string) $raw;
+                }
+
+                // Keep the prompt small even if an applicant pasted a long answer.
+                if (mb_strlen($answer) > 500) {
+                    $answer = mb_substr($answer, 0, 500) . '…';
+                }
+            }
+
+            $lines[] = sprintf("- %s (%s, %s)%s%s\n  Current answer: %s", $label, $type, $req, $optionsHint, $help, $answer);
+        }
+
+        return "\n\nCUSTOM QUESTIONS FOR THIS ROUND (specific to this grant):\n" . implode("\n", $lines);
     }
 
     // Browse surface: a specific round's full public details, or a list of every currently open round.
@@ -248,7 +315,8 @@ PROMPT;
             'documentRequests.document',
         ])->find($applicationId);
 
-        if (! $application) {
+        // Drafts are invisible to admins (private until submitted), including the review assistant.
+        if (! $application || $application->status === 'draft') {
             return response()->json([
                 'error' => [
                     'code'    => 'not_found',
@@ -369,12 +437,14 @@ PROMPT;
             ], 403);
         }
 
-        // Status counts: how many applications sit at each lifecycle stage.
-        $statusCounts = Application::selectRaw('status, COUNT(*) as c')
+        // Status counts: how many applications sit at each lifecycle stage. Drafts are excluded
+        // entirely — admins don't see applicants' unsubmitted work, not even as a tally.
+        $statusCounts = Application::where('status', '!=', 'draft')
+            ->selectRaw('status, COUNT(*) as c')
             ->groupBy('status')
             ->pluck('c', 'status');
 
-        $statusBlock = collect(['draft', 'submitted', 'under_review', 'approved', 'rejected', 'withdrawn'])
+        $statusBlock = collect(['submitted', 'under_review', 'approved', 'rejected', 'withdrawn'])
             ->map(fn ($s) => sprintf('%s: %d', $s, $statusCounts[$s] ?? 0))
             ->implode(', ');
 
@@ -383,8 +453,9 @@ PROMPT;
             ->where('submitted_at', '>=', now()->subDays(7))
             ->count();
 
-        // Per-round breakdown so the bot can answer "which round is busiest?".
-        $perRound = Application::selectRaw('grant_round_id, COUNT(*) as c')
+        // Per-round breakdown so the bot can answer "which round is busiest?". Drafts excluded.
+        $perRound = Application::where('status', '!=', 'draft')
+            ->selectRaw('grant_round_id, COUNT(*) as c')
             ->groupBy('grant_round_id')
             ->orderByDesc('c')
             ->with('grantRound:id,title,status')
@@ -426,7 +497,7 @@ You can help with: summarising the queue, pointing out backlogs, highlighting wh
 
 The data below is a snapshot taken just now. If they ask for newer numbers later in this conversation, tell them the snapshot is for the start of this chat and suggest they refresh.
 
-STATUS COUNTS (across all applications):
+STATUS COUNTS (across all submitted applications):
 $statusBlock
 
 SUBMITTED IN THE LAST 7 DAYS: $submittedLast7

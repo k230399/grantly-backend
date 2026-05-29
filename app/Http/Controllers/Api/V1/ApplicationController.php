@@ -37,9 +37,11 @@ class ApplicationController extends Controller
     {
         $user = $request->user();
 
-        // Admins see every application with applicant context; applicants see only their own.
+        // Admins see every submitted application with applicant context; applicants see only their
+        // own. Drafts are the applicant's private work-in-progress, so admins never see them.
         if ($user->role === 'admin') {
-            $query = Application::with(['applicant', 'grantRound'])->withCount('documents');
+            $query = Application::with(['applicant', 'grantRound'])->withCount('documents')
+                ->where('status', '!=', 'draft');
         } else {
             $query = Application::with('grantRound')
                 ->where('applicant_id', $user->id);
@@ -81,7 +83,7 @@ class ApplicationController extends Controller
     {
         $user = $request->user();
 
-        // Applicants can only see their own applications; admins see any.
+        // Applicants can only see their own applications; admins see any submitted one.
         if ($user->role !== 'admin' && $application->applicant_id !== $user->id) {
             return response()->json([
                 'error' => [
@@ -91,7 +93,29 @@ class ApplicationController extends Controller
             ], 403);
         }
 
+        // Drafts are private to the applicant until submitted. To an admin a draft simply
+        // doesn't exist (404 rather than 403 so we don't reveal that one is in progress).
+        if ($user->role === 'admin' && $application->status === 'draft') {
+            return response()->json([
+                'error' => [
+                    'code'    => 'not_found',
+                    'message' => 'Application not found.',
+                ],
+            ], 404);
+        }
+
         $application->load(['applicant', 'grantRound', 'documents', 'statusHistory']);
+
+        // Sign each document's storage_path so the detail view can link straight to Supabase.
+        // Best-effort: a transient signing failure leaves download_url null rather than 500ing
+        // the whole application. Mirrors ApplicationDocumentController::index.
+        $application->documents->each(function ($document) {
+            try {
+                $document->download_url = $this->storage->signedUrl($document->storage_path);
+            } catch (Throwable) {
+                $document->download_url = null;
+            }
+        });
 
         return response()->json([
             'data' => new ApplicationResource($application),
@@ -514,6 +538,16 @@ class ApplicationController extends Controller
                     'message' => 'Only administrators can change application status.',
                 ],
             ], 403);
+        }
+
+        // Drafts aren't visible to admins, so they can't be pulled into review by id either.
+        if ($application->status === 'draft') {
+            return response()->json([
+                'error' => [
+                    'code'    => 'not_found',
+                    'message' => 'Application not found.',
+                ],
+            ], 404);
         }
 
         $previousStatus = $application->status;
