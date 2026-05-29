@@ -79,43 +79,6 @@ class SupabaseAdminService
         return ['url' => $url, 'id' => $id];
     }
 
-    // Returns a map of lowercased email => hasSignedIn(bool) for every auth user, by paging the
-    // admin list endpoint. Used to flag invited-but-not-yet-set-up accounts as "pending": an
-    // invitee who clicks the link has their email confirmed by Supabase but still hasn't signed
-    // in until they set a password, so last_sign_in_at is the signal that they actually finished.
-    public function signedInByEmail(): array
-    {
-        $map     = [];
-        $perPage = 200;
-
-        // Cap the loop so a misbehaving response can never spin forever.
-        for ($page = 1; $page <= 50; $page++) {
-            $response = $this->client()->get("{$this->baseUrl}/auth/v1/admin/users", [
-                'page'     => $page,
-                'per_page' => $perPage,
-            ]);
-
-            if ($response->failed()) {
-                throw new RuntimeException($this->codeFor($response->json(), 'lookup_failed'));
-            }
-
-            $users = $response->json('users') ?? [];
-            foreach ($users as $u) {
-                $email = strtolower((string) ($u['email'] ?? ''));
-                if ($email === '') {
-                    continue;
-                }
-                $map[$email] = ! empty($u['last_sign_in_at']);
-            }
-
-            if (count($users) < $perPage) {
-                break;
-            }
-        }
-
-        return $map;
-    }
-
     // Admin endpoints need both the apikey header and a service-role bearer token.
     private function client()
     {

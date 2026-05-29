@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\SupabaseAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 use RuntimeException;
@@ -24,26 +25,11 @@ class AdminUserController extends Controller
         $users = User::query()
             ->where('role', 'admin')
             ->orderBy('full_name')
-            ->get(['id', 'email', 'full_name', 'role', 'organisation_name', 'created_at']);
-
-        // Flag invited-but-not-yet-set-up accounts (never signed in). Best-effort: if the Supabase
-        // lookup is unconfigured or unreachable, fall back to "nothing pending" rather than
-        // breaking the page.
-        $signedIn = [];
-        try {
-            $signedIn = app(SupabaseAdminService::class)->signedInByEmail();
-        } catch (RuntimeException $e) {
-            $signedIn = [];
-        }
+            ->get(['id', 'email', 'full_name', 'role', 'organisation_name', 'invite_accepted_at', 'created_at']);
 
         return response()->json([
-            'data' => $users->map(function (User $u) use ($signedIn) {
-                $email   = strtolower((string) $u->email);
-                // Pending only when we positively know they've never signed in.
-                $pending = array_key_exists($email, $signedIn) && $signedIn[$email] === false;
-
-                return $this->toArray($u, $pending);
-            })->all(),
+            // Pending = invited but hasn't completed first sign-in yet (invite_accepted_at is null).
+            'data' => $users->map(fn (User $u) => $this->toArray($u, is_null($u->invite_accepted_at)))->all(),
         ]);
     }
 
@@ -59,15 +45,16 @@ class AdminUserController extends Controller
 
         $email = strtolower(trim($data['email']));
 
-        // Promotion path: the person already has an account.
+        // Promotion path: the person already has an account, so they're Active, not a pending invite.
         $existing = User::where('email', $email)->first();
         if ($existing) {
-            if ($existing->role !== 'admin') {
-                $existing->update(['role' => 'admin']);
-            }
+            $existing->update([
+                'role'               => 'admin',
+                'invite_accepted_at' => $existing->invite_accepted_at ?? now(),
+            ]);
 
             return response()->json([
-                'data'    => $this->toArray($existing->fresh()),
+                'data'    => $this->toArray($existing->fresh(), false),
                 'action'  => 'promoted',
                 'message' => "{$existing->full_name} is now an admin.",
             ]);
@@ -103,6 +90,10 @@ class AdminUserController extends Controller
         try {
             Mail::to($email)->send(new AdminInvite($email, $invite['url']));
         } catch (\Throwable $e) {
+            Log::error('Admin invite email failed to send', [
+                'email'     => $email,
+                'exception' => $e->getMessage(),
+            ]);
             return response()->json([
                 'data'    => $this->toArray($user, true),
                 'action'  => 'invited',
@@ -125,21 +116,15 @@ class AdminUserController extends Controller
             return $this->conflict('Only pending admin invitations can be resent.');
         }
 
+        // Already completed setup (signed in) — nothing to resend.
+        if (! is_null($user->invite_accepted_at)) {
+            return $this->conflict('This person has already accepted their invite.');
+        }
+
         try {
             $admin = app(SupabaseAdminService::class);
         } catch (RuntimeException $e) {
             return $this->serviceUnavailable();
-        }
-
-        // Guard against resending to someone who has already finished setting up (signed in).
-        try {
-            $signedIn = $admin->signedInByEmail();
-            $email    = strtolower((string) $user->email);
-            if (($signedIn[$email] ?? false) === true) {
-                return $this->conflict('This person has already accepted their invite.');
-            }
-        } catch (RuntimeException $e) {
-            // Status lookup unavailable — proceed with the resend rather than blocking the admin.
         }
 
         try {
@@ -151,6 +136,10 @@ class AdminUserController extends Controller
         try {
             Mail::to($user->email)->send(new AdminInvite($user->email, $invite['url']));
         } catch (\Throwable $e) {
+            Log::error('Admin invite resend failed', [
+                'email'     => $user->email,
+                'exception' => $e->getMessage(),
+            ]);
             return response()->json([
                 'error' => [
                     'code'    => 'email_send_failed',

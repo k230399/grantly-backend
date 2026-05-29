@@ -35,7 +35,10 @@ class MakeAdmin extends Command
                 return self::SUCCESS;
             }
 
-            $existing->update(['role' => 'admin']);
+            $existing->update([
+                'role'               => 'admin',
+                'invite_accepted_at' => $existing->invite_accepted_at ?? now(),
+            ]);
             $this->info("Promoted {$email} to admin.");
             return self::SUCCESS;
         }
@@ -75,10 +78,12 @@ class MakeAdmin extends Command
         }
 
         User::create([
-            'id'        => $userId,
-            'email'     => $email,
-            'full_name' => $name,
-            'role'      => 'admin',
+            'id'                 => $userId,
+            'email'              => $email,
+            'full_name'          => $name,
+            'role'               => 'admin',
+            // Created with a known password via CLI, so they're Active, not a pending invite.
+            'invite_accepted_at' => now(),
         ]);
 
         $this->info("Created admin account for {$email}. You can now log in.");

@@ -27,13 +27,15 @@ class User extends Authenticatable
         'state',
         'postcode',
         'role',
+        'invite_accepted_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'created_at' => 'datetime',
-            'updated_at' => 'datetime',
+            'invite_accepted_at' => 'datetime',
+            'created_at'         => 'datetime',
+            'updated_at'         => 'datetime',
         ];
     }
 

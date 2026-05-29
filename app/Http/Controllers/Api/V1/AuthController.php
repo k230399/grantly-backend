@@ -149,6 +149,11 @@ class AuthController extends Controller
             ], 500);
         }
 
+        // First successful sign-in marks an invited account as accepted (no longer Pending).
+        if (is_null($user->invite_accepted_at)) {
+            $user->forceFill(['invite_accepted_at' => now()])->save();
+        }
+
         return response()->json([
             'access_token' => $accessToken,
             'token_type'   => 'bearer',
