@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Mail\DocumentRequested;
 use App\Models\Application;
 use App\Models\DocumentRequest;
 use App\Models\GrantRound;
@@ -9,6 +10,7 @@ use App\Models\User;
 use App\Services\SupabaseStorageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Mail;
 use Mockery;
 use Tests\TestCase;
 
@@ -21,6 +23,10 @@ class DocumentRequestTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        // The document-request endpoint emails the applicant inline; fake the mailer so tests
+        // don't make real Resend calls.
+        Mail::fake();
 
         $storage = Mockery::mock(SupabaseStorageService::class);
         $storage->shouldReceive('upload')->andReturnNull();
@@ -67,6 +73,12 @@ class DocumentRequestTest extends TestCase
             'application_id' => $app->id,
             'type'           => 'document_requested',
         ]);
+
+        // The applicant is also emailed about the request.
+        Mail::assertSent(
+            DocumentRequested::class,
+            fn (DocumentRequested $m) => $m->hasTo($applicant->email)
+        );
     }
 
     public function test_request_creation_blocked_on_draft_application(): void

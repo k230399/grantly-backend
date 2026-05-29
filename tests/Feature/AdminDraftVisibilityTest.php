@@ -21,7 +21,7 @@ class AdminDraftVisibilityTest extends TestCase
         Mail::fake();
     }
 
-    private function seed(): array
+    private function seedScenario(): array
     {
         $admin     = User::factory()->admin()->create();
         $applicant = User::factory()->create();
@@ -43,7 +43,7 @@ class AdminDraftVisibilityTest extends TestCase
 
     public function test_admin_index_excludes_drafts(): void
     {
-        ['admin' => $admin, 'draft' => $draft, 'submitted' => $submitted] = $this->seed();
+        ['admin' => $admin, 'draft' => $draft, 'submitted' => $submitted] = $this->seedScenario();
 
         $response = $this->actingAsUser($admin)->getJson('/api/v1/applications');
         $response->assertOk();
@@ -55,7 +55,7 @@ class AdminDraftVisibilityTest extends TestCase
 
     public function test_admin_cannot_view_a_draft(): void
     {
-        ['admin' => $admin, 'draft' => $draft] = $this->seed();
+        ['admin' => $admin, 'draft' => $draft] = $this->seedScenario();
 
         $this->actingAsUser($admin)
             ->getJson("/api/v1/applications/{$draft->id}")
@@ -65,7 +65,7 @@ class AdminDraftVisibilityTest extends TestCase
 
     public function test_admin_cannot_change_status_of_a_draft(): void
     {
-        ['admin' => $admin, 'draft' => $draft] = $this->seed();
+        ['admin' => $admin, 'draft' => $draft] = $this->seedScenario();
 
         $this->actingAsUser($admin)
             ->patchJson("/api/v1/applications/{$draft->id}/status", ['status' => 'under_review'])
@@ -78,7 +78,7 @@ class AdminDraftVisibilityTest extends TestCase
 
     public function test_admin_can_view_a_submitted_application(): void
     {
-        ['admin' => $admin, 'submitted' => $submitted] = $this->seed();
+        ['admin' => $admin, 'submitted' => $submitted] = $this->seedScenario();
 
         $this->actingAsUser($admin)
             ->getJson("/api/v1/applications/{$submitted->id}")
@@ -88,7 +88,7 @@ class AdminDraftVisibilityTest extends TestCase
 
     public function test_applicant_still_sees_their_own_draft(): void
     {
-        ['applicant' => $applicant, 'draft' => $draft] = $this->seed();
+        ['applicant' => $applicant, 'draft' => $draft] = $this->seedScenario();
 
         // Visible in their list...
         $ids = collect(

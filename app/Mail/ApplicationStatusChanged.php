@@ -4,15 +4,15 @@ namespace App\Mail;
 
 use App\Models\Application;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-// ShouldQueue makes Mail::send() push this to the queue instead of running inline,
-// so the status-change endpoint isn't held up if Resend is slow. Requires `php artisan queue:work`.
-class ApplicationStatusChanged extends Mailable implements ShouldQueue
+// Sent inline (no ShouldQueue): Mail::send() delivers during the request rather than via the
+// queue, so it works without a running queue worker. The status-change endpoint wraps send() in a
+// try/catch, so a slow or failing Resend can't block the status change itself.
+class ApplicationStatusChanged extends Mailable
 {
     use Queueable, SerializesModels;
 

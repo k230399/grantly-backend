@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\DocumentRequested;
 use App\Models\Application;
 use App\Models\DocumentRequest;
 use App\Models\Notification;
 use App\Services\SupabaseStorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 class DocumentRequestController extends Controller
@@ -89,6 +92,20 @@ class DocumentRequestController extends Controller
             'message'        => "An admin requested an additional document for application {$application->reference_number}: {$documentRequest->label}.",
             'is_read'        => false,
         ]);
+
+        // Transactional email to the applicant. Same swallow-on-failure pattern as submit/status:
+        // the in-app notification + DB row are the source of truth, so a Resend outage must not
+        // block creating the request.
+        try {
+            $application->loadMissing('applicant', 'grantRound');
+            Mail::to($application->applicant->email)->send(new DocumentRequested($application, $documentRequest));
+        } catch (Throwable $e) {
+            Log::warning('DocumentRequested email failed', [
+                'application_id'      => $application->id,
+                'document_request_id' => $documentRequest->id,
+                'error'               => $e->getMessage(),
+            ]);
+        }
 
         $documentRequest->load(['document', 'requestedBy:id,full_name']);
 
