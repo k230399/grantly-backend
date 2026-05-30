@@ -12,7 +12,7 @@ class AbnLookupController extends Controller
     // GET /api/v1/abn-lookup/{abn}
     // Looks up an 11-digit ABN against the Australian Business Register and returns the
     // normalised record. Errors come back as typed JSON: not_found, cancelled, invalid_format,
-    // not_configured (env var missing), or lookup_failed. The router constrains {abn} to 11 digits.
+    // invalid_checksum, not_configured (env var missing), or lookup_failed. The router constrains {abn} to 11 digits.
     public function show(string $abn, AbrLookupService $service): JsonResponse
     {
         try {
@@ -32,6 +32,13 @@ class AbnLookupController extends Controller
                 'error' => [
                     'code'    => 'invalid_format',
                     'message' => 'ABN must be exactly 11 digits.',
+                ],
+            ], 422),
+
+            'invalid_checksum' => response()->json([
+                'error' => [
+                    'code'    => 'invalid_checksum',
+                    'message' => 'This ABN is not valid. Please check for typos.',
                 ],
             ], 422),
 

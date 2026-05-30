@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Application;
 
 use App\Http\Requests\ApiFormRequest;
+use App\Rules\ValidAbn;
 
 // All fields use 'sometimes' so drafts can be saved with partial data (PATCH semantics).
 // Ownership and draft-status checks live in the controller.
@@ -16,9 +17,9 @@ class UpdateApplicationRequest extends ApiFormRequest
     public function rules(): array
     {
         return [
-            // ABN is format-checked only; a valid ABN is enforced at submit for organisations.
+            // ABN is shape/checksum-checked only; a valid, active ABN is enforced against the ABR at submit.
             'applicant_type'    => ['sometimes', 'in:individual,organisation'],
-            'abn'               => ['sometimes', 'nullable', 'string', 'regex:/^\d{11}$/'],
+            'abn'               => ['sometimes', 'nullable', 'string', new ValidAbn],
             'organisation_name' => ['sometimes', 'nullable', 'string', 'max:255'],
 
             'project_name'        => ['sometimes', 'required', 'string', 'max:255'],
@@ -36,7 +37,6 @@ class UpdateApplicationRequest extends ApiFormRequest
     public function messages(): array
     {
         return [
-            'abn.regex'                => 'ABN must be exactly 11 digits.',
             'total_project_budget.gte' => 'The total project budget must be greater than or equal to the funding requested.',
         ];
     }

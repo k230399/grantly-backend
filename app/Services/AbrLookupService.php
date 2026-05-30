@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\Abn;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -13,7 +14,7 @@ use RuntimeException;
 // PATCH /profile re-verify do not hit the ABR more than once.
 //
 // Throws RuntimeException with codes the controller maps to API errors:
-//   not_configured, invalid_format, not_found, cancelled, lookup_failed
+//   not_configured, invalid_format, invalid_checksum, not_found, cancelled, lookup_failed
 class AbrLookupService
 {
     private string $baseUrl;
@@ -30,10 +31,16 @@ class AbrLookupService
     // Looks up a single ABN. Returns the normalised shape used across the app.
     public function lookup(string $abn): array
     {
-        $abn = preg_replace('/\s+/', '', $abn);
+        $abn = Abn::normalise($abn);
 
-        if (! preg_match('/^\d{11}$/', $abn)) {
+        if (! Abn::hasValidFormat($abn)) {
             throw new RuntimeException('invalid_format');
+        }
+
+        // Reject numbers that fail the ABR check-digit algorithm before spending a network
+        // call: they can never resolve on the register, so this is a cheap local short-circuit.
+        if (! Abn::hasValidChecksum($abn)) {
+            throw new RuntimeException('invalid_checksum');
         }
 
         if ($this->guid === null || $this->guid === '') {
